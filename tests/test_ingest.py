@@ -2,16 +2,16 @@
 Tests for src/ingest.py — data ingestion and validation.
 
 Test strategy:
-  - load_locations: tested against real CSV fixtures (file I/O path)
-  - validate_locations: tested with in-memory DataFrames for surgical
-    control over exactly which rows are bad and why
-  - generate_quality_report: smoke-tested for output format and disk write
+  - load_locations: tested against temporary CSV files created from in-memory
+    DataFrames (via conftest.py fixtures), exercising the full file-I/O path.
+  - validate_locations: tested with in-memory DataFrames for surgical control
+    over exactly which rows are bad and why.
+  - generate_quality_report: tested for output format and disk write.
 
-Fixtures are committed CSV files in tests/fixtures/ so tests run without
-any external data download.
+No CSV data files are committed to the repository. All test data is generated
+programmatically in tests/conftest.py following industry standard practice.
 """
 
-import io
 from pathlib import Path
 
 import pandas as pd
@@ -23,14 +23,6 @@ from src.ingest import (
     load_locations,
     validate_locations,
 )
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-VALID_CSV = FIXTURES_DIR / "locations_valid.csv"
-ISSUES_CSV = FIXTURES_DIR / "locations_with_issues.csv"
 
 
 def _make_df(**overrides) -> pd.DataFrame:
@@ -67,13 +59,13 @@ def _make_valid_df(n: int = 5) -> pd.DataFrame:
 
 class TestLoadLocations:
 
-    def test_loads_valid_csv(self):
-        df = load_locations(VALID_CSV)
+    def test_loads_valid_csv(self, valid_locations_csv):
+        df = load_locations(valid_locations_csv)
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 10
 
-    def test_returns_expected_columns(self):
-        df = load_locations(VALID_CSV)
+    def test_returns_expected_columns(self, valid_locations_csv):
+        df = load_locations(valid_locations_csv)
         for col in ["location_id", "latitude", "longitude", "state", "county"]:
             assert col in df.columns, f"Expected column '{col}' not found"
 
@@ -87,9 +79,9 @@ class TestLoadLocations:
         with pytest.raises(ValueError, match="Missing required columns"):
             load_locations(bad_csv)
 
-    def test_loads_issues_csv(self):
-        """Fixture with problematic rows must load without error — cleaning is separate."""
-        df = load_locations(ISSUES_CSV)
+    def test_loads_issues_csv(self, issues_locations_csv):
+        """CSV with problematic rows must load without error — cleaning is separate."""
+        df = load_locations(issues_locations_csv)
         assert isinstance(df, pd.DataFrame)
         assert len(df) > 0
 
@@ -335,17 +327,20 @@ class TestGenerateQualityReport:
         content = fake_path.read_text()
         assert "Total records" in content
 
-    def test_issues_fixture_full_pipeline(self):
-        """End-to-end: load issues fixture → validate → report."""
-        df = load_locations(ISSUES_CSV)
+    def test_issues_fixture_full_pipeline(self, issues_locations_csv):
+        """End-to-end: load issues CSV → validate → report.
+
+        The issues fixture (see conftest.py) has 10 rows with 7 expected drops:
+          1 null lat, 1 null lon, 1 null location_id,
+          1 out-of-range lat, 1 out-of-range lon,
+          1 duplicate location_id, 1 invalid state code.
+        Exactly 3 rows should survive.
+        """
+        df = load_locations(issues_locations_csv)
         clean, report = validate_locations(df)
         text = generate_quality_report(report)
 
-        # The issues fixture has 12 rows total with known problems:
-        # 1 null lat, 1 null lon, 1 null id, 1 out-of-range lat,
-        # 1 out-of-range lon, 1 duplicate (LOC_GOOD_01), 1 bad state code (XX)
-        # → at least some rows dropped
-        assert report["dropped_records"] > 0
-        assert report["valid_records"] > 0
         assert report["total_records"] == len(df)
+        assert report["dropped_records"] == 7
+        assert report["valid_records"] == 3
         assert isinstance(text, str)
