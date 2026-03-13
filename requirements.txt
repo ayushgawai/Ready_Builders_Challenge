@@ -1,0 +1,29 @@
+# LEO Satellite Coverage Risk Analysis — Python Dependencies
+# Python 3.11+
+#
+# Install: pip install -r requirements.txt
+
+# --- AI / Agent ---
+anthropic
+
+# --- Data processing ---
+pandas
+numpy
+
+# --- Geospatial ---
+geopandas
+rasterio
+shapely
+
+# --- Visualization ---
+matplotlib
+seaborn
+folium
+
+# --- Utilities ---
+python-dotenv
+tqdm
+requests
+
+# --- Testing ---
+pytest

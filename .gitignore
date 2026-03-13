@@ -1,0 +1,50 @@
+# --- Data (never commit raw/processed data or large rasters) ---
+data/
+
+# --- Notebooks (personal exploration only) ---
+notebooks/
+
+# --- Personal notes and planning docs ---
+_personal/
+
+# --- Environment and secrets ---
+.env
+*.env
+
+# --- Python artifacts ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Raster and large geospatial files ---
+*.tif
+*.tiff
+*.img
+*.hdf
+*.nc
+*.zip
+
+# --- IDE and OS artifacts ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+
+# --- Test and coverage artifacts ---
+.pytest_cache/
+.coverage
+htmlcov/
