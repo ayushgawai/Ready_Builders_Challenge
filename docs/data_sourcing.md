@@ -143,15 +143,14 @@ Land cover type provides a corroborating contextual signal. If a location is in 
 
 ### Schema assumption:
 
-The challenge description guarantees: `location_id`, `latitude`, `longitude`.  
-Our pipeline additionally expects: `state`, `county`.
+The challenge explicitly provides: `location_id`, `latitude`, `longitude`, `state`, `county`.  
+All five columns are specified in the challenge description.
 
-These are present in FCC BEAD submission data, but if absent, the pipeline will:
-- Warn (not fail) on load
-- Proceed with all analysis using coordinates only
-- Skip state/county level aggregation in the report
-
-**Open question for Ready.net team:** Can you confirm the exact schema and column names for the locations CSV?
+If `state` or `county` are absent or have null values, the pipeline:
+- Warns (does not fail) on load
+- **Auto-fills missing values** from coordinates using offline reverse geocoding (`reverse_geocoder` library — no API key required, ~1M rows in under one minute)
+- Falls back to coordinates-only analysis if reverse geocoding is unavailable
+- State-level aggregation in the report uses whichever values are available
 
 ---
 

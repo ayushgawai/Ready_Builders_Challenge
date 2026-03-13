@@ -24,6 +24,7 @@ folium
 python-dotenv
 tqdm
 requests
+reverse_geocoder
 
 # --- Testing ---
 pytest

@@ -81,13 +81,21 @@ class TestLoadLocations:
             load_locations(bad_csv)
 
     def test_loads_successfully_without_optional_columns(self, tmp_path):
-        """CSV with only critical columns (no state/county) must load without error."""
+        """CSV with only critical columns loads without error.
+
+        reverse_geocoder auto-fills state and county from coordinates, so the
+        returned DataFrame will have those columns even if the CSV did not.
+        The test verifies the critical columns are present and the row count is
+        correct — not the absence of optional columns, since the pipeline now
+        fills them proactively.
+        """
         minimal_csv = tmp_path / "minimal.csv"
         minimal_csv.write_text("location_id,latitude,longitude\nLOC_01,45.0,-100.0\n")
         df = load_locations(minimal_csv)
         assert len(df) == 1
         assert "location_id" in df.columns
-        assert "state" not in df.columns
+        assert "latitude" in df.columns
+        assert "longitude" in df.columns
 
     def test_loads_issues_csv(self, issues_locations_csv):
         """CSV with problematic rows must load without error — cleaning is separate."""

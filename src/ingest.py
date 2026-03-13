@@ -31,10 +31,12 @@ from src.config import (
     DATA_QUALITY_REPORT_PATH,
     EXPECTED_COLUMNS,
 )
+from src.utils.geo_utils import fill_missing_geo_fields
 
 # Columns that exist in EXPECTED_COLUMNS but are not in CRITICAL_COLUMNS.
 # Missing optional columns trigger a warning, not a pipeline failure.
-# Rationale: the challenge only guarantees location_id, latitude, longitude.
+# Rationale: the challenge specifies all five columns, but real-world null values
+# in state/county are common in data compiled from multiple provider submissions.
 # State and county are expected but may be absent in some provider submissions.
 _OPTIONAL_COLUMNS = [c for c in EXPECTED_COLUMNS if c not in CRITICAL_COLUMNS]
 
@@ -100,6 +102,11 @@ def load_locations(file_path: str | Path) -> pd.DataFrame:
     logger.info("Loaded %d rows from %s", len(df), file_path.name)
 
     _check_schema(df, file_path)
+
+    # Auto-fill missing state/county from coordinates (offline, fast).
+    # No-op if both columns are complete. Graceful degradation if
+    # reverse_geocoder is not installed.
+    df = fill_missing_geo_fields(df)
 
     return df
 
