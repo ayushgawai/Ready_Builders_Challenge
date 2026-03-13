@@ -149,6 +149,8 @@ See [`docs/analysis_rationale.md`](docs/analysis_rationale.md) for full methodol
 | Python venv + requirements.txt | Poetry, conda | Simple and reproducible for a POC with clear dependencies | Poetry for production with locked versions |
 | Pandas + numpy (no Spark) | PySpark, Dask | 1M rows fits comfortably in RAM. Distributed compute adds infrastructure cost with no POC benefit | Dask at 100x scale (100M locations) |
 | Canopy weight 50%, Slope 30%, Landcover 20% | Equal weights, model-driven weights | Weights reflect Starlink guide hierarchy: dish doc emphasizes canopy as primary obstruction. Slope matters but can be mitigated by mounting height. Land cover is corroborating signal | Could calibrate with ground-truth data from actual Starlink installs |
+| Sequential drop ordering in validate_locations | Drop all at once, flag-only | Sequential drops prevent double-counting — a row with null lat AND bad state is counted once (null lat wins). Clean ordering also makes the quality report accurate and auditable | No change needed for this use case |
+| Drop invalid state codes | Warn but keep | State code is used for state-level reporting; a row with an unrecognisable state produces wrong aggregations. Drop is cleaner than propagating bad labels into the report | Could loosen to warn-only if the dataset has many non-standard state formats |
 
 ---
 
