@@ -73,11 +73,21 @@ class TestLoadLocations:
         with pytest.raises(FileNotFoundError, match="not found"):
             load_locations(tmp_path / "nonexistent.csv")
 
-    def test_raises_on_missing_columns(self, tmp_path):
+    def test_raises_on_missing_critical_columns(self, tmp_path):
+        """CSV missing location_id, latitude, longitude must raise ValueError."""
         bad_csv = tmp_path / "bad.csv"
         bad_csv.write_text("lat,lon\n45.0,-100.0\n")
         with pytest.raises(ValueError, match="Missing required columns"):
             load_locations(bad_csv)
+
+    def test_loads_successfully_without_optional_columns(self, tmp_path):
+        """CSV with only critical columns (no state/county) must load without error."""
+        minimal_csv = tmp_path / "minimal.csv"
+        minimal_csv.write_text("location_id,latitude,longitude\nLOC_01,45.0,-100.0\n")
+        df = load_locations(minimal_csv)
+        assert len(df) == 1
+        assert "location_id" in df.columns
+        assert "state" not in df.columns
 
     def test_loads_issues_csv(self, issues_locations_csv):
         """CSV with problematic rows must load without error — cleaning is separate."""

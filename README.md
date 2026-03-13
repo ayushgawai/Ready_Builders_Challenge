@@ -182,6 +182,19 @@ See [`docs/step0_install_guide_analysis.md`](docs/step0_install_guide_analysis.m
 
 ---
 
+## Open Questions for Ready.net Team
+
+The challenge notes "email the team to ask questions & gather requirements." The following are open items:
+
+| Question | Why It Matters |
+|---|---|
+| Can you confirm the exact CSV schema and column names? | Our pipeline expects `location_id, latitude, longitude, state, county`. If `state`/`county` are absent or named differently, we handle it gracefully but state-level reporting is skipped. |
+| Are there specific states or regions to prioritize for the initial analysis run? | Full CONUS rasters are 1-4 GB each. Clipping to relevant states first enables faster development iteration. |
+| What is the expected output format for the final risk report? | The challenge mentions "findings" — we produce a Markdown report + charts + CSV. Would a specific format be more useful? |
+| Is there a preferred risk threshold definition? | Our HIGH/MODERATE/LOW tiers are based on our interpretation of the install guide. If there is a domain standard (e.g., >X% canopy = unserviceable), we would align to it. |
+
+---
+
 ## AI Tool Disclosure
 
 See [`AI_TOOLS.md`](AI_TOOLS.md).

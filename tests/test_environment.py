@@ -33,7 +33,6 @@ import rasterio
 
 from src.environment import (
     _extract_tif_from_zip,
-    _is_geographic_4326,
     _is_zip,
     _verify_raster,
     compute_slope_raster,
@@ -41,6 +40,7 @@ from src.environment import (
     enrich_locations,
     sample_raster_at_points,
 )
+from src.utils.geo_utils import is_geographic_crs
 from tests.conftest import (
     SAMPLE_COORD_CENTER,
     SAMPLE_COORD_FAR,

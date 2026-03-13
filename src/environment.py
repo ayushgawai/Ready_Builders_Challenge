@@ -53,6 +53,7 @@ from src.config import (
     LANDCOVER_RASTER_URL,
     SLOPE_RASTER_PATH,
 )
+from src.utils.geo_utils import cell_size_to_meters, is_geographic_crs
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,7 @@ def sample_raster_at_points(
         # --- CRS reprojection -------------------------------------------------
         # Input coords are always EPSG:4326 (lat/lon). Many rasters (e.g. NLCD)
         # are in EPSG:5070 (Albers Equal Area). Reproject before sampling.
-        if raster_crs and not _is_geographic_4326(raster_crs):
+        if raster_crs and not is_geographic_crs(raster_crs):
             transformer = Transformer.from_crs(
                 "EPSG:4326", raster_crs, always_xy=True
             )
@@ -359,19 +360,8 @@ def compute_slope_raster(dem_path: Path, slope_path: Path) -> Path:
             elevation[elevation == nodata_in] = np.nan
 
         # --- Cell size in metres ---
-        if crs and crs.is_geographic:
-            # CRS is in degrees (e.g. EPSG:4326). Convert to metres.
-            center_lat = (bounds.top + bounds.bottom) / 2.0
-            res_x_deg = abs(transform.a)
-            res_y_deg = abs(transform.e)
-            meters_per_deg_y = 111_319.5
-            meters_per_deg_x = 111_319.5 * np.cos(np.radians(center_lat))
-            res_x_m = res_x_deg * meters_per_deg_x
-            res_y_m = res_y_deg * meters_per_deg_y
-        else:
-            # CRS is projected (metres). Use pixel size directly.
-            res_x_m = abs(transform.a)
-            res_y_m = abs(transform.e)
+        center_lat = (bounds.top + bounds.bottom) / 2.0
+        res_x_m, res_y_m = cell_size_to_meters(transform, crs, center_lat)
 
         # numpy.gradient(f, dy, dx):
         #   First return  → gradient along axis 0 (rows = Y = north-south)
@@ -494,15 +484,6 @@ def _verify_raster(path: Path) -> bool:
             return src.count >= 1
     except Exception:
         return False
-
-
-def _is_geographic_4326(crs: CRS) -> bool:
-    """Return True if *crs* is a geographic (lat/lon) CRS close to EPSG:4326.
-
-    Handles WGS84 variants (EPSG:4326, EPSG:4269, etc.) that all use
-    degree-based coordinates.
-    """
-    return crs.is_geographic
 
 
 def _is_zip(url: str, content_type: str, buffer: io.BytesIO) -> bool:

@@ -32,6 +32,12 @@ from src.config import (
     EXPECTED_COLUMNS,
 )
 
+# Columns that exist in EXPECTED_COLUMNS but are not in CRITICAL_COLUMNS.
+# Missing optional columns trigger a warning, not a pipeline failure.
+# Rationale: the challenge only guarantees location_id, latitude, longitude.
+# State and county are expected but may be absent in some provider submissions.
+_OPTIONAL_COLUMNS = [c for c in EXPECTED_COLUMNS if c not in CRITICAL_COLUMNS]
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -249,11 +255,30 @@ def generate_quality_report(quality_report: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def _check_schema(df: pd.DataFrame, file_path: Path) -> None:
-    """Raise ValueError if any expected columns are missing."""
-    missing = [col for col in EXPECTED_COLUMNS if col not in df.columns]
-    if missing:
+    """Validate column presence: raise on missing critical columns, warn on optional.
+
+    Critical columns (location_id, latitude, longitude) are non-negotiable —
+    without them the pipeline cannot map or identify any location.
+
+    Optional columns (state, county) are expected per the build plan but are
+    not guaranteed by the challenge spec. Missing optional columns reduce
+    reporting capability (no state-level aggregation) but do not halt ingestion.
+    """
+    # Critical check — hard failure
+    missing_critical = [col for col in CRITICAL_COLUMNS if col not in df.columns]
+    if missing_critical:
         raise ValueError(
-            f"Missing required columns in {file_path.name}: {missing}\n"
-            f"Expected: {EXPECTED_COLUMNS}\n"
+            f"Missing required columns in {file_path.name}: {missing_critical}\n"
+            f"Required: {CRITICAL_COLUMNS}\n"
             f"Found:    {list(df.columns)}"
+        )
+
+    # Optional check — warn only
+    missing_optional = [col for col in _OPTIONAL_COLUMNS if col not in df.columns]
+    if missing_optional:
+        logger.warning(
+            "Optional columns missing from %s: %s. "
+            "State/county-level reporting will be unavailable.",
+            file_path.name,
+            missing_optional,
         )
