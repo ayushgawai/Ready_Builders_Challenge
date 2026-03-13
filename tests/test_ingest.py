@@ -38,7 +38,8 @@ def _make_df(**overrides) -> pd.DataFrame:
         "longitude": -100.0,
         "geoid_cb": "300490101001001",  # MT Meagher — valid FIPS
         "state": "MT",
-        "county_fips": "30049",
+        "county": "Meagher",       # human-readable county name
+        "county_fips": "30049",    # 5-digit FIPS (internal)
     }
     base.update(overrides)
     return pd.DataFrame([base])
@@ -47,7 +48,7 @@ def _make_df(**overrides) -> pd.DataFrame:
 def _make_valid_df(n: int = 5) -> pd.DataFrame:
     """Build a DataFrame with *n* valid CONUS records.
 
-    Represents post-load data with state derived from geoid_cb.
+    Represents post-load data with state and county name derived.
     """
     rows = [
         {
@@ -56,7 +57,8 @@ def _make_valid_df(n: int = 5) -> pd.DataFrame:
             "longitude": -100.0 - i,
             "geoid_cb": f"4800{i:01d}0101001001",  # TX, synthetic county
             "state": "TX",
-            "county_fips": f"4800{i:01d}",
+            "county": f"Test County {i}",    # human-readable name
+            "county_fips": f"4800{i:01d}",   # 5-digit FIPS (internal)
         }
         for i in range(n)
     ]
@@ -75,9 +77,10 @@ class TestLoadLocations:
         assert len(df) == 10
 
     def test_returns_expected_columns(self, valid_locations_csv):
-        """After loading, state and county_fips must be derived from geoid_cb."""
+        """After loading, state/county (name) and county_fips must be derived."""
         df = load_locations(valid_locations_csv)
-        for col in ["location_id", "latitude", "longitude", "geoid_cb", "state", "county_fips"]:
+        for col in ["location_id", "latitude", "longitude", "geoid_cb",
+                    "state", "county", "county_fips"]:
             assert col in df.columns, f"Expected column '{col}' not found"
 
     def test_raises_file_not_found(self, tmp_path):
@@ -113,6 +116,86 @@ class TestLoadLocations:
         df = load_locations(issues_locations_csv)
         assert isinstance(df, pd.DataFrame)
         assert len(df) > 0
+
+
+# ---------------------------------------------------------------------------
+# validate_locations — Pass 0: non-numeric type check
+# ---------------------------------------------------------------------------
+
+class TestValidateLocationsTypeChecks:
+
+    def test_drops_non_numeric_latitude(self):
+        """String latitude like 'abc' must be detected and dropped."""
+        df = pd.DataFrame([
+            {"location_id": "GOOD",       "latitude": 40.0,         "longitude": -90.0,  "state": "IL"},
+            {"location_id": "BAD_LAT",    "latitude": "not_a_number","longitude": -90.0,  "state": "IL"},
+        ])
+        clean, report = validate_locations(df)
+        assert len(clean) == 1
+        assert clean.iloc[0]["location_id"] == "GOOD"
+        assert report["drop_reasons"]["non_numeric_latitude"] == 1
+
+    def test_drops_non_numeric_longitude(self):
+        """String longitude must be detected and dropped."""
+        df = pd.DataFrame([
+            {"location_id": "GOOD",    "latitude": 40.0, "longitude": -90.0,   "state": "IL"},
+            {"location_id": "BAD_LON", "latitude": 40.0, "longitude": "N/A",   "state": "IL"},
+        ])
+        clean, report = validate_locations(df)
+        assert len(clean) == 1
+        assert report["drop_reasons"]["non_numeric_longitude"] == 1
+
+    def test_drops_blank_whitespace_location_id(self):
+        """location_id = '   ' (spaces only) is functionally null — must be dropped."""
+        df = pd.DataFrame([
+            {"location_id": "GOOD", "latitude": 40.0, "longitude": -90.0, "state": "IL"},
+            {"location_id": "   ",  "latitude": 41.0, "longitude": -91.0, "state": "IL"},
+        ])
+        clean, report = validate_locations(df)
+        assert len(clean) == 1
+        assert clean.iloc[0]["location_id"] == "GOOD"
+        assert report["drop_reasons"]["blank_location_id"] == 1
+
+    def test_numeric_string_latitude_is_valid_after_coercion(self):
+        """A numeric string like '45.0' is valid — should be coerced and kept."""
+        df = pd.DataFrame([
+            {"location_id": "STR_LAT", "latitude": "45.0", "longitude": -100.0, "state": "MT"},
+        ])
+        clean, report = validate_locations(df)
+        assert len(clean) == 1
+        assert clean.iloc[0]["latitude"] == pytest.approx(45.0)
+        assert "non_numeric_latitude" not in report["drop_reasons"]
+
+    def test_multiple_non_numeric_rows_counted_separately_from_nulls(self):
+        """non_numeric_latitude and null_latitude must be separate keys."""
+        df = pd.DataFrame([
+            {"location_id": "GOOD",      "latitude": 40.0,    "longitude": -90.0, "state": "IL"},
+            {"location_id": "BAD_TYPE",  "latitude": "ERROR", "longitude": -90.0, "state": "IL"},
+            {"location_id": "NULL_LAT",  "latitude": None,    "longitude": -90.0, "state": "IL"},
+        ])
+        clean, report = validate_locations(df)
+        assert len(clean) == 1
+        # Both reasons must appear and both must count exactly 1
+        assert report["drop_reasons"].get("non_numeric_latitude", 0) == 1
+        assert report["drop_reasons"].get("null_latitude", 0) == 1
+
+    def test_float64_column_skips_coercion_pass(self):
+        """If latitude is already float64 dtype, the type coercion pass is a no-op."""
+        df = _make_valid_df(5)
+        assert df["latitude"].dtype != object  # should be float64 from _make_valid_df
+        clean, report = validate_locations(df)
+        assert "non_numeric_latitude" not in report["drop_reasons"]
+        assert report["dropped_records"] == 0
+
+    def test_empty_string_longitude_is_dropped(self):
+        """Empty string '' in longitude — not null, but not numeric either."""
+        df = pd.DataFrame([
+            {"location_id": "GOOD",      "latitude": 40.0, "longitude": -90.0, "state": "IL"},
+            {"location_id": "EMPTY_LON", "latitude": 40.0, "longitude": "",    "state": "IL"},
+        ])
+        clean, report = validate_locations(df)
+        assert len(clean) == 1
+        assert report["drop_reasons"]["non_numeric_longitude"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -231,9 +314,9 @@ class TestValidateLocationsDuplicates:
 
     def test_keeps_first_drops_duplicate(self):
         df = pd.DataFrame([
-            {"location_id": "DUP_01", "latitude": 40.0, "longitude": -100.0, "state": "CO", "county_fips": "08013"},
-            {"location_id": "DUP_01", "latitude": 41.0, "longitude": -101.0, "state": "CO", "county_fips": "08014"},
-            {"location_id": "UNIQUE", "latitude": 42.0, "longitude": -102.0, "state": "CO", "county_fips": "08015"},
+            {"location_id": "DUP_01", "latitude": 40.0, "longitude": -100.0, "state": "CO", "county": "Arapahoe",  "county_fips": "08013"},
+            {"location_id": "DUP_01", "latitude": 41.0, "longitude": -101.0, "state": "CO", "county": "Boulder",   "county_fips": "08014"},
+            {"location_id": "UNIQUE", "latitude": 42.0, "longitude": -102.0, "state": "CO", "county": "Broomfield","county_fips": "08015"},
         ])
         clean, report = validate_locations(df)
         assert len(clean) == 2
@@ -244,9 +327,9 @@ class TestValidateLocationsDuplicates:
 
     def test_multiple_duplicates(self):
         df = pd.DataFrame([
-            {"location_id": "DUP", "latitude": 40.0, "longitude": -100.0, "state": "CO", "county_fips": "08013"},
-            {"location_id": "DUP", "latitude": 40.1, "longitude": -100.1, "state": "CO", "county_fips": "08014"},
-            {"location_id": "DUP", "latitude": 40.2, "longitude": -100.2, "state": "CO", "county_fips": "08015"},
+            {"location_id": "DUP", "latitude": 40.0, "longitude": -100.0, "state": "CO", "county": "Arapahoe",  "county_fips": "08013"},
+            {"location_id": "DUP", "latitude": 40.1, "longitude": -100.1, "state": "CO", "county": "Boulder",   "county_fips": "08014"},
+            {"location_id": "DUP", "latitude": 40.2, "longitude": -100.2, "state": "CO", "county": "Broomfield","county_fips": "08015"},
         ])
         clean, report = validate_locations(df)
         assert len(clean) == 1
@@ -359,10 +442,11 @@ class TestGenerateQualityReport:
     def test_issues_fixture_full_pipeline(self, issues_locations_csv):
         """End-to-end: load issues CSV → validate → report.
 
-        The issues fixture (see conftest.py) has 10 rows with 6 expected drops:
-          1 null lat, 1 null lon, 1 null location_id,
-          1 out-of-range lat, 1 out-of-range lon,
-          1 duplicate location_id.
+        The issues fixture (see conftest.py) has 12 rows with 8 expected drops:
+          Pass 0: 1 non-numeric latitude (LOC_BAD_LAT)
+          Pass 1: 1 null lat, 1 null lon, 1 null location_id, 1 blank location_id
+          Pass 2: 1 out-of-range lat, 1 out-of-range lon
+          Pass 3: 1 duplicate location_id
         The LOC_NULL_GEOID row (null geoid_cb) gets state filled by reverse
         geocoding and is NOT dropped — it counts as valid.
         Exactly 4 rows should survive.
@@ -372,6 +456,6 @@ class TestGenerateQualityReport:
         text = generate_quality_report(report)
 
         assert report["total_records"] == len(df)
-        assert report["dropped_records"] == 6
+        assert report["dropped_records"] == 8
         assert report["valid_records"] == 4
         assert isinstance(text, str)

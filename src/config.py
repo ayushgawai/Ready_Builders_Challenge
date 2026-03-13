@@ -52,7 +52,7 @@ SAMPLE_LOCATIONS_CSV = RAW_DIR / "locations_sample.csv"  # dev/test fixture
 # Actual schema confirmed from DATA_CHALLENGE_50.csv (4.67M rows):
 #   location_id, latitude, longitude, geoid_cb
 # geoid_cb is a 15-digit Census block GEOID (e.g. 371790203162002).
-# state (2-letter abbr) and county_fips (5-digit FIPS) are DERIVED from it.
+# state (2-letter abbr) and county (5-digit FIPS) are DERIVED from it.
 # No state/county columns are present in the source CSV.
 EXPECTED_COLUMNS = ["location_id", "latitude", "longitude", "geoid_cb"]
 

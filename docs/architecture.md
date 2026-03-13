@@ -116,9 +116,17 @@ sequenceDiagram
 
 ### Tool: `ingest_locations` (`src/ingest.py`)
 
-- Loads the raw CSV with pandas.
-- Validates schema (expected columns present), coordinate ranges, duplicate IDs.
-- Returns a quality report (counts of dropped records and drop reasons).
+- Loads the raw CSV with pandas (`geoid_cb` forced to `str` dtype to preserve leading zeros).
+- Derives `state`, `county`, and `county_fips` in two stages:
+  - **Stage 1 — Census GEOID (primary, ~99% of rows):** Parses `geoid_cb` to extract state FIPS and county FIPS. `state` is looked up via the [`us`](https://pypi.org/project/us/) library (`us.states.lookup(fips).abbr` → `"CA"`). `county` is looked up via [`pygris`](https://pypi.org/project/pygris/) which fetches the official Census TIGER/Line cartographic boundary file and returns the `NAMELSAD` field (e.g. `"Santa Clara County"`, `"Orleans Parish"`) — no hardcoded dictionary, scales automatically as the Census updates. `county_fips` (e.g. `"06085"`) is kept as a separate column for FCC/BEAD data joins.
+  - **Stage 2 — Reverse geocoding (fallback, rows with null/malformed GEOID only):** `reverse_geocoder` (offline GeoNames KD-tree) provides `county` from `admin2` (kept as-is, no suffix stripping) and `state` from `admin1` via `us.states.lookup()`. Only fires for the small fraction of rows where Stage 1 produced nulls — not wastefully on all 4.67M rows.
+- **Five sequential validation passes** (each tracked separately in the quality report):
+  1. **Type coercion** — lat/lon non-numeric strings (e.g. `"N/A"`, `"abc"`) → coerced; unconvertible rows dropped with reason `non_numeric_latitude` / `non_numeric_longitude`.
+  2. **Null / blank critical columns** — null `location_id`/`latitude`/`longitude` dropped; whitespace-only `location_id` (`"   "`) dropped with reason `blank_location_id`.
+  3. **CONUS coordinate bounds** — rows outside the continental US bounding box dropped.
+  4. **Duplicate location_id** — keep first occurrence, drop subsequent.
+  5. **Invalid state code** — derived state not in the 50-state + DC set dropped.
+- Returns a quality report (counts of dropped records per reason, retention rate).
 - Saves cleaned data to `data/processed/`.
 
 ### Tool: `sample_environment` (`src/environment.py`)
@@ -161,7 +169,10 @@ Raw CSV → [T1: ingest] → cleaned_locations.csv (data/processed/)
        → [T5: report]  → findings_report.md, charts (data/output/)
 ```
 
-Each tool call persists its output to disk. If the pipeline is interrupted and restarted, completed steps can be skipped (file existence check in each tool). The agent is told which intermediate files exist at startup.
+Each tool call persists its output to disk. If the pipeline is interrupted and restarted, completed steps can be skipped.
+
+**Idempotency / cache check** (`src/utils/pipeline_utils.py`):  
+At startup the agent calls `is_scored_cache_valid(input_path, output_path)`. If `locations_scored.csv` already exists and is newer than the input CSV, the agent skips the entire ingest→enrich→score pipeline and calls `load_scored_cache()` instead. This avoids re-running the 20–60 minute raster sampling step on unchanged data. To force a full re-run, delete `data/processed/locations_scored.csv`.
 
 ---
 

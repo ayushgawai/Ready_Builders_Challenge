@@ -6,12 +6,20 @@ Responsibilities:
   - Validate schema, coordinate ranges, duplicates, and state codes
   - Produce a structured quality report that is both logged and saved to disk
 
+Validation pass order (sequential to avoid double-counting):
+  Pass 0: Non-numeric lat/lon  → values like "abc", "N/A", "#VALUE!" are coerced;
+          rows where coercion fails (non-null→NaN) are dropped and counted.
+  Pass 1: Null/blank critical columns → null location_id/lat/lon dropped;
+          whitespace-only location_id ("   ") also treated as blank and dropped.
+  Pass 2: Out-of-range coordinates (CONUS bounding box) → spatially invalid rows.
+  Pass 3: Duplicate location_id → keep first occurrence, drop the rest.
+  Pass 4: Invalid state code → must be one of 50 states + DC.
+
 Design decisions:
-  - Drops are applied sequentially in priority order to avoid double-counting:
-      1. Null critical columns  →  row cannot be identified or mapped at all
-      2. Out-of-range coordinates  →  row cannot be spatially analysed
-      3. Duplicate location_id  →  keep first occurrence, drop the rest
-      4. Invalid state code  →  row is ambiguous for state-level reporting
+  - Type coercion (Pass 0) runs before null checks so the quality report can
+    distinguish "was missing in CSV" vs "was a non-numeric string in CSV".
+  - Blank location_id ("   ") is not the same as null in Python, but is
+    functionally identical — the row cannot be identified in any downstream join.
   - All thresholds and constants are imported from config.py — nothing hardcoded here.
   - The quality_report dict is the canonical record of what happened to the data;
     the text report is a human-readable rendering of that dict.
@@ -142,7 +150,34 @@ def validate_locations(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     dropped: dict[str, int] = {}
     working = df.copy()
 
-    # --- Pass 1: Null critical columns ---
+    # --- Pass 0: Non-numeric type check for latitude and longitude ---
+    # If the CSV contains string values like "abc", "N/A", "#VALUE!", pandas
+    # reads the whole column as object or StringDtype (pandas 3+). We coerce to
+    # float64 and track rows where coercion failed (non-null → became NaN).
+    # These are counted separately from genuine nulls (Pass 1) so the quality
+    # report can tell you "3 rows had the string 'N/A' in latitude" vs
+    # "2 rows simply had no latitude value at all".
+    # Uses .assign() to avoid pandas Copy-on-Write (CoW) issues with StringDtype.
+    for col in ["latitude", "longitude"]:
+        if col not in working.columns:
+            continue
+        original_non_null = working[col].notna()
+        coerced = pd.to_numeric(working[col], errors="coerce")
+        non_numeric_mask = original_non_null & coerced.isna()
+        count = int(non_numeric_mask.sum())
+        if count:
+            key = f"non_numeric_{col}"
+            dropped[key] = count
+            working = working.loc[~non_numeric_mask].copy()
+            logger.debug("Dropped %d rows: %s", count, key)
+        # Always convert column to float64 for safe downstream comparisons
+        # regardless of whether any rows were dropped.
+        working = working.assign(**{col: pd.to_numeric(working[col], errors="coerce")})
+
+    # --- Pass 1: Null / blank critical columns ---
+    # Null check: location_id, latitude, longitude are non-negotiable.
+    # Blank location_id: "   " is not null but is functionally identical —
+    # the row cannot be identified or joined in any downstream operation.
     for col in CRITICAL_COLUMNS:
         mask_null = working[col].isna()
         count = int(mask_null.sum())
@@ -151,6 +186,13 @@ def validate_locations(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
             dropped[key] = count
             working = working[~mask_null].copy()
             logger.debug("Dropped %d rows: %s", count, key)
+
+    blank_id_mask = working["location_id"].astype(str).str.strip() == ""
+    blank_count = int(blank_id_mask.sum())
+    if blank_count:
+        dropped["blank_location_id"] = blank_count
+        working = working[~blank_id_mask].copy()
+        logger.debug("Dropped %d rows: blank_location_id", blank_count)
 
     # --- Pass 2: Out-of-range coordinates (CONUS bounds) ---
     mask_lat = (working["latitude"] < CONUS_LAT_MIN) | (working["latitude"] > CONUS_LAT_MAX)
@@ -205,6 +247,20 @@ def validate_locations(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return working.reset_index(drop=True), quality_report
 
 
+# Human-readable labels for each drop-reason key that appears in the quality report.
+_DROP_REASON_LABELS: dict[str, str] = {
+    "non_numeric_latitude":     "Non-numeric value in latitude (e.g. 'abc', 'N/A')",
+    "non_numeric_longitude":    "Non-numeric value in longitude (e.g. 'abc', 'N/A')",
+    "null_location_id":         "Null / missing location_id",
+    "blank_location_id":        "Blank / whitespace-only location_id",
+    "null_latitude":            "Null / missing latitude",
+    "null_longitude":           "Null / missing longitude",
+    "out_of_range_coordinates": "Coordinates outside CONUS bounding box",
+    "duplicate_location_id":    "Duplicate location_id (kept first occurrence)",
+    "invalid_state_code":       "Invalid state code (not in 50-state + DC set)",
+}
+
+
 def generate_quality_report(quality_report: dict) -> str:
     """Format the quality report as a human-readable string and save it to disk.
 
@@ -237,10 +293,11 @@ def generate_quality_report(quality_report: dict) -> str:
     drop_reasons = quality_report.get("drop_reasons", {})
     if drop_reasons:
         for reason, count in drop_reasons.items():
-            # Skip sub-breakdown keys that are already captured by the parent
+            # Skip sub-breakdown keys already captured by the parent key
             if reason in ("out_of_range_lat", "out_of_range_lon"):
                 continue
-            lines.append(f"    - {reason:<35}: {count:>8,}")
+            label = _DROP_REASON_LABELS.get(reason, reason)
+            lines.append(f"    - {label:<45}: {count:>8,}")
     else:
         lines.append("    (none — all records passed validation)")
 

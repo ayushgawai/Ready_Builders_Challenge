@@ -79,46 +79,53 @@ def valid_locations_df() -> pd.DataFrame:
 
 @pytest.fixture(scope="session")
 def locations_with_issues_df() -> pd.DataFrame:
-    """Ten rows covering every validation failure type.
+    """Twelve rows covering every validation failure type including new type checks.
 
     Schema matches the actual CSV: location_id, latitude, longitude, geoid_cb.
-    state and county_fips are DERIVED from geoid_cb in load_locations().
+    state and county are DERIVED from geoid_cb in load_locations().
 
     Tracing through sequential validation in validate_locations:
-      Pass 1 — null critical columns:
-        null_location_id : 1 dropped  (row with None location_id)
-        null_latitude    : 1 dropped  (LOC_NULL_LAT row)
-        null_longitude   : 1 dropped  (LOC_NULL_LON row)
+      Pass 0 — non-numeric type check:
+        LOC_BAD_LAT_TYPE (lat="not_a_number") : 1 dropped  → non_numeric_latitude
+      Pass 1 — null / blank critical columns:
+        null_location_id                       : 1 dropped  → null_location_id
+        LOC_NULL_LAT                           : 1 dropped  → null_latitude
+        LOC_NULL_LON                           : 1 dropped  → null_longitude
+        LOC_BLANK_ID (location_id="   ")       : 1 dropped  → blank_location_id
       Pass 2 — out-of-range coordinates:
-        LOC_OOR_LAT (lat=85.0)   : 1 dropped
-        LOC_OOR_LON (lon=-170.0) : 1 dropped
+        LOC_OOR_LAT (lat=85.0)                 : 1 dropped
+        LOC_OOR_LON (lon=-170.0)               : 1 dropped
       Pass 3 — duplicate location_id:
-        second LOC_GOOD_01       : 1 dropped
+        second LOC_GOOD_01                     : 1 dropped
       Pass 4 — invalid state (safeguard on derived state):
         LOC_NULL_GEOID has null geoid_cb → state derived via reverse_geocoder
         (not dropped — reverse_geocoder fills state from valid CONUS coords)
-      ─────────────────────────────────────
-      Total dropped : 6
+      ─────────────────────────────────────────────────────────────────
+      Total dropped : 8
       Total valid   : 4  (LOC_GOOD_01, LOC_GOOD_02, LOC_NULL_GEOID, LOC_GOOD_03)
     """
     return pd.DataFrame(
         [
-            # Three clean rows with valid GEOIDs
-            {"location_id": "LOC_GOOD_01",   "latitude": 47.6062, "longitude": -122.3321, "geoid_cb": "530330101001001"},  # WA King
-            {"location_id": "LOC_GOOD_02",   "latitude": 45.5231, "longitude": -122.6765, "geoid_cb": "410510101001001"},  # OR Multnomah
-            # Null critical columns (each is a separate row → counted separately)
-            {"location_id": "LOC_NULL_LAT",  "latitude": None,    "longitude": -122.4194, "geoid_cb": "060750101001001"},
-            {"location_id": "LOC_NULL_LON",  "latitude": 37.7749, "longitude": None,      "geoid_cb": "410390101001001"},
-            {"location_id": None,            "latitude": 48.7519, "longitude": -122.4787, "geoid_cb": "530730101001001"},
-            # Out-of-range coordinates
-            {"location_id": "LOC_OOR_LAT",   "latitude": 85.0,    "longitude": -110.3626, "geoid_cb": "300490101001001"},
-            {"location_id": "LOC_OOR_LON",   "latitude": 44.5588, "longitude": -170.0,    "geoid_cb": "500230101001001"},
-            # Duplicate location_id — second occurrence should be dropped
-            {"location_id": "LOC_GOOD_01",   "latitude": 35.2271, "longitude":  -80.8431, "geoid_cb": "371190101001001"},
-            # Null geoid_cb — state will be filled via reverse geocoding (not dropped)
-            {"location_id": "LOC_NULL_GEOID","latitude": 33.4484, "longitude": -112.0740, "geoid_cb": None},  # Phoenix, AZ → reverse geocoder → AZ
-            # One more clean row
-            {"location_id": "LOC_GOOD_03",   "latitude": 29.7604, "longitude":  -95.3698, "geoid_cb": "482010101001001"},  # TX Harris
+            # Four clean rows with valid GEOIDs
+            {"location_id": "LOC_GOOD_01",    "latitude": 47.6062,         "longitude": -122.3321, "geoid_cb": "530330101001001"},  # WA King
+            {"location_id": "LOC_GOOD_02",    "latitude": 45.5231,         "longitude": -122.6765, "geoid_cb": "410510101001001"},  # OR Multnomah
+            # Pass 0: non-numeric latitude — the string cannot be coerced to float
+            {"location_id": "LOC_BAD_LAT",    "latitude": "not_a_number",  "longitude": -110.0,    "geoid_cb": "300490101001001"},
+            # Pass 1: null critical columns (each counted separately)
+            {"location_id": "LOC_NULL_LAT",   "latitude": None,            "longitude": -122.4194, "geoid_cb": "060750101001001"},
+            {"location_id": "LOC_NULL_LON",   "latitude": 37.7749,         "longitude": None,      "geoid_cb": "410390101001001"},
+            {"location_id": None,             "latitude": 48.7519,         "longitude": -122.4787, "geoid_cb": "530730101001001"},
+            # Pass 1: blank/whitespace-only location_id — functionally same as null
+            {"location_id": "   ",            "latitude": 40.0,            "longitude": -105.0,    "geoid_cb": "080310101001001"},
+            # Pass 2: out-of-range coordinates
+            {"location_id": "LOC_OOR_LAT",    "latitude": 85.0,            "longitude": -110.3626, "geoid_cb": "300490101001001"},
+            {"location_id": "LOC_OOR_LON",    "latitude": 44.5588,         "longitude": -170.0,    "geoid_cb": "500230101001001"},
+            # Pass 3: duplicate location_id — second occurrence should be dropped
+            {"location_id": "LOC_GOOD_01",    "latitude": 35.2271,         "longitude":  -80.8431, "geoid_cb": "371190101001001"},
+            # Valid: null geoid_cb → state filled via reverse geocoding (not dropped)
+            {"location_id": "LOC_NULL_GEOID", "latitude": 33.4484,         "longitude": -112.0740, "geoid_cb": None},  # Phoenix AZ
+            # Valid: one more clean row
+            {"location_id": "LOC_GOOD_03",    "latitude": 29.7604,         "longitude":  -95.3698, "geoid_cb": "482010101001001"},  # TX Harris
         ]
     )
 

@@ -14,11 +14,16 @@ numpy
 geopandas
 rasterio
 shapely
+pygris          # Census TIGER/Line county data (county FIPS → NAMELSAD name)
+us              # US state FIPS / name / abbreviation lookups
 
 # --- Visualization ---
 matplotlib
 seaborn
 folium
+
+# --- Reporting / spreadsheet generation ---
+openpyxl
 
 # --- Utilities ---
 python-dotenv
