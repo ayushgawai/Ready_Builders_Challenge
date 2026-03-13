@@ -45,14 +45,22 @@ ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
 # Input Data
 # ---------------------------------------------------------------------------
 
-LOCATIONS_CSV = RAW_DIR / "locations.csv"
+LOCATIONS_CSV = RAW_DIR / "DATA_CHALLENGE_50.csv"
 SAMPLE_LOCATIONS_CSV = RAW_DIR / "locations_sample.csv"  # dev/test fixture
 
 # Columns the pipeline expects to find in the locations CSV.
-EXPECTED_COLUMNS = ["location_id", "latitude", "longitude", "state", "county"]
+# Actual schema confirmed from DATA_CHALLENGE_50.csv (4.67M rows):
+#   location_id, latitude, longitude, geoid_cb
+# geoid_cb is a 15-digit Census block GEOID (e.g. 371790203162002).
+# state (2-letter abbr) and county_fips (5-digit FIPS) are DERIVED from it.
+# No state/county columns are present in the source CSV.
+EXPECTED_COLUMNS = ["location_id", "latitude", "longitude", "geoid_cb"]
 
 # Columns we treat as critical — rows with nulls here are dropped entirely.
 CRITICAL_COLUMNS = ["location_id", "latitude", "longitude"]
+
+# Census GEOID column name — used to derive state and county FIPS.
+GEOID_CB_COLUMN = "geoid_cb"
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +181,8 @@ MAX_AGENT_TURNS = 20
 
 BATCH_SIZE: int = 50_000
 # Number of locations processed per batch during raster sampling.
-# At 1M locations, BATCH_SIZE=50K → 20 batches with moderate RAM usage.
-# Tune down (e.g. 10K) on low-memory machines.
+# DATA_CHALLENGE_50.csv has ~4.67M locations (not ~1M as originally estimated).
+# At 4.67M rows, BATCH_SIZE=50K → ~93 batches. Tune down on low-memory machines.
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +206,7 @@ FOREST_LOW_CANOPY_THRESHOLD: int = 5
 # ---------------------------------------------------------------------------
 
 DATA_QUALITY_REPORT_PATH = OUTPUT_DIR / "data_quality_report.txt"
+ANOMALY_REPORT_PATH = OUTPUT_DIR / "anomaly_report.txt"
 FINDINGS_REPORT_PATH = OUTPUT_DIR / "findings_report.md"
 RISK_DISTRIBUTION_CHART_PATH = OUTPUT_DIR / "risk_distribution.png"
 STATIC_MAP_PATH = OUTPUT_DIR / "risk_map_static.png"

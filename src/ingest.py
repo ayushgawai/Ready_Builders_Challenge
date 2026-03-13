@@ -33,11 +33,10 @@ from src.config import (
 )
 from src.utils.geo_utils import fill_missing_geo_fields
 
-# Columns that exist in EXPECTED_COLUMNS but are not in CRITICAL_COLUMNS.
-# Missing optional columns trigger a warning, not a pipeline failure.
-# Rationale: the challenge specifies all five columns, but real-world null values
-# in state/county are common in data compiled from multiple provider submissions.
-# State and county are expected but may be absent in some provider submissions.
+# geoid_cb is EXPECTED but not CRITICAL.
+# Actual CSV schema (DATA_CHALLENGE_50.csv): location_id, latitude, longitude, geoid_cb.
+# No state/county in the source CSV — they are derived in load_locations() via
+# Census FIPS parsing (primary) or reverse geocoding (fallback).
 _OPTIONAL_COLUMNS = [c for c in EXPECTED_COLUMNS if c not in CRITICAL_COLUMNS]
 
 logger = logging.getLogger(__name__)
@@ -98,7 +97,9 @@ def load_locations(file_path: str | Path) -> pd.DataFrame:
         )
 
     logger.info("Loading locations from %s", file_path)
-    df = pd.read_csv(file_path, low_memory=False)
+    # Read geoid_cb as string to preserve leading zeros (e.g. CA state FIPS "06")
+    # and avoid float64 scientific-notation conversion when nulls are present.
+    df = pd.read_csv(file_path, low_memory=False, dtype={"geoid_cb": str})
     logger.info("Loaded %d rows from %s", len(df), file_path.name)
 
     _check_schema(df, file_path)
@@ -285,7 +286,7 @@ def _check_schema(df: pd.DataFrame, file_path: Path) -> None:
     if missing_optional:
         logger.warning(
             "Optional columns missing from %s: %s. "
-            "State/county-level reporting will be unavailable.",
+            "State/county will be derived from coordinates via reverse geocoding.",
             file_path.name,
             missing_optional,
         )

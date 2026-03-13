@@ -55,19 +55,24 @@ SAMPLE_COORD_OOB = (30.0, -80.0)         # outside the raster extent → NaN
 
 @pytest.fixture(scope="session")
 def valid_locations_df() -> pd.DataFrame:
-    """Ten valid CONUS location rows — all pass every validation check."""
+    """Ten valid CONUS location rows — all pass every validation check.
+
+    geoid_cb values use real state+county FIPS with synthetic tract/block:
+      format: SS CCC TTTTTT BBBB  (state 2 + county 3 + tract 6 + block 4 = 15 digits)
+    e.g. "530330101001001" = WA (53) + King County (033) + synthetic tract/block
+    """
     return pd.DataFrame(
         [
-            {"location_id": "LOC_0001", "latitude": 47.6062, "longitude": -122.3321, "state": "WA", "county": "King"},
-            {"location_id": "LOC_0002", "latitude": 45.5231, "longitude": -122.6765, "state": "OR", "county": "Multnomah"},
-            {"location_id": "LOC_0003", "latitude": 37.7749, "longitude": -122.4194, "state": "CA", "county": "San Francisco"},
-            {"location_id": "LOC_0004", "latitude": 44.0521, "longitude": -123.0868, "state": "OR", "county": "Lane"},
-            {"location_id": "LOC_0005", "latitude": 48.7519, "longitude": -122.4787, "state": "WA", "county": "Whatcom"},
-            {"location_id": "LOC_0006", "latitude": 46.8797, "longitude": -110.3626, "state": "MT", "county": "Meagher"},
-            {"location_id": "LOC_0007", "latitude": 44.5588, "longitude":  -72.5778, "state": "VT", "county": "Washington"},
-            {"location_id": "LOC_0008", "latitude": 35.2271, "longitude":  -80.8431, "state": "NC", "county": "Mecklenburg"},
-            {"location_id": "LOC_0009", "latitude": 39.7392, "longitude": -104.9903, "state": "CO", "county": "Denver"},
-            {"location_id": "LOC_0010", "latitude": 36.1627, "longitude":  -86.7816, "state": "TN", "county": "Davidson"},
+            {"location_id": "LOC_0001", "latitude": 47.6062, "longitude": -122.3321, "geoid_cb": "530330101001001"},  # WA King
+            {"location_id": "LOC_0002", "latitude": 45.5231, "longitude": -122.6765, "geoid_cb": "410510101001001"},  # OR Multnomah
+            {"location_id": "LOC_0003", "latitude": 37.7749, "longitude": -122.4194, "geoid_cb": "060750101001001"},  # CA San Francisco
+            {"location_id": "LOC_0004", "latitude": 44.0521, "longitude": -123.0868, "geoid_cb": "410390101001001"},  # OR Lane
+            {"location_id": "LOC_0005", "latitude": 48.7519, "longitude": -122.4787, "geoid_cb": "530730101001001"},  # WA Whatcom
+            {"location_id": "LOC_0006", "latitude": 46.8797, "longitude": -110.3626, "geoid_cb": "300490101001001"},  # MT Meagher
+            {"location_id": "LOC_0007", "latitude": 44.5588, "longitude":  -72.5778, "geoid_cb": "500230101001001"},  # VT Washington
+            {"location_id": "LOC_0008", "latitude": 35.2271, "longitude":  -80.8431, "geoid_cb": "371190101001001"},  # NC Mecklenburg
+            {"location_id": "LOC_0009", "latitude": 39.7392, "longitude": -104.9903, "geoid_cb": "080310101001001"},  # CO Denver
+            {"location_id": "LOC_0010", "latitude": 36.1627, "longitude":  -86.7816, "geoid_cb": "470370101001001"},  # TN Davidson
         ]
     )
 
@@ -76,9 +81,12 @@ def valid_locations_df() -> pd.DataFrame:
 def locations_with_issues_df() -> pd.DataFrame:
     """Ten rows covering every validation failure type.
 
+    Schema matches the actual CSV: location_id, latitude, longitude, geoid_cb.
+    state and county_fips are DERIVED from geoid_cb in load_locations().
+
     Tracing through sequential validation in validate_locations:
       Pass 1 — null critical columns:
-        null_location_id : 1 dropped  (LOC_NULL_ID row)
+        null_location_id : 1 dropped  (row with None location_id)
         null_latitude    : 1 dropped  (LOC_NULL_LAT row)
         null_longitude   : 1 dropped  (LOC_NULL_LON row)
       Pass 2 — out-of-range coordinates:
@@ -86,30 +94,31 @@ def locations_with_issues_df() -> pd.DataFrame:
         LOC_OOR_LON (lon=-170.0) : 1 dropped
       Pass 3 — duplicate location_id:
         second LOC_GOOD_01       : 1 dropped
-      Pass 4 — invalid state:
-        LOC_BAD_STATE (XX)       : 1 dropped
+      Pass 4 — invalid state (safeguard on derived state):
+        LOC_NULL_GEOID has null geoid_cb → state derived via reverse_geocoder
+        (not dropped — reverse_geocoder fills state from valid CONUS coords)
       ─────────────────────────────────────
-      Total dropped : 7
-      Total valid   : 3  (LOC_GOOD_01, LOC_GOOD_02, LOC_GOOD_03)
+      Total dropped : 6
+      Total valid   : 4  (LOC_GOOD_01, LOC_GOOD_02, LOC_NULL_GEOID, LOC_GOOD_03)
     """
     return pd.DataFrame(
         [
-            # Two clean rows
-            {"location_id": "LOC_GOOD_01",  "latitude": 47.6062, "longitude": -122.3321, "state": "WA", "county": "King"},
-            {"location_id": "LOC_GOOD_02",  "latitude": 45.5231, "longitude": -122.6765, "state": "OR", "county": "Multnomah"},
+            # Three clean rows with valid GEOIDs
+            {"location_id": "LOC_GOOD_01",   "latitude": 47.6062, "longitude": -122.3321, "geoid_cb": "530330101001001"},  # WA King
+            {"location_id": "LOC_GOOD_02",   "latitude": 45.5231, "longitude": -122.6765, "geoid_cb": "410510101001001"},  # OR Multnomah
             # Null critical columns (each is a separate row → counted separately)
-            {"location_id": "LOC_NULL_LAT", "latitude": None,    "longitude": -122.4194, "state": "CA", "county": "San Francisco"},
-            {"location_id": "LOC_NULL_LON", "latitude": 37.7749, "longitude": None,      "state": "OR", "county": "Lane"},
-            {"location_id": None,           "latitude": 48.7519, "longitude": -122.4787, "state": "WA", "county": "Whatcom"},
+            {"location_id": "LOC_NULL_LAT",  "latitude": None,    "longitude": -122.4194, "geoid_cb": "060750101001001"},
+            {"location_id": "LOC_NULL_LON",  "latitude": 37.7749, "longitude": None,      "geoid_cb": "410390101001001"},
+            {"location_id": None,            "latitude": 48.7519, "longitude": -122.4787, "geoid_cb": "530730101001001"},
             # Out-of-range coordinates
-            {"location_id": "LOC_OOR_LAT",  "latitude": 85.0,   "longitude": -110.3626, "state": "MT", "county": "Meagher"},
-            {"location_id": "LOC_OOR_LON",  "latitude": 44.5588, "longitude": -170.0,   "state": "VT", "county": "Washington"},
+            {"location_id": "LOC_OOR_LAT",   "latitude": 85.0,    "longitude": -110.3626, "geoid_cb": "300490101001001"},
+            {"location_id": "LOC_OOR_LON",   "latitude": 44.5588, "longitude": -170.0,    "geoid_cb": "500230101001001"},
             # Duplicate location_id — second occurrence should be dropped
-            {"location_id": "LOC_GOOD_01",  "latitude": 35.2271, "longitude":  -80.8431, "state": "NC", "county": "Mecklenburg"},
-            # Invalid state code
-            {"location_id": "LOC_BAD_STATE","latitude": 33.4484, "longitude": -112.0740, "state": "XX", "county": "Maricopa"},
-            # One more clean row to confirm non-zero valid count
-            {"location_id": "LOC_GOOD_03",  "latitude": 29.7604, "longitude":  -95.3698, "state": "TX", "county": "Harris"},
+            {"location_id": "LOC_GOOD_01",   "latitude": 35.2271, "longitude":  -80.8431, "geoid_cb": "371190101001001"},
+            # Null geoid_cb — state will be filled via reverse geocoding (not dropped)
+            {"location_id": "LOC_NULL_GEOID","latitude": 33.4484, "longitude": -112.0740, "geoid_cb": None},  # Phoenix, AZ → reverse geocoder → AZ
+            # One more clean row
+            {"location_id": "LOC_GOOD_03",   "latitude": 29.7604, "longitude":  -95.3698, "geoid_cb": "482010101001001"},  # TX Harris
         ]
     )
 
@@ -132,6 +141,70 @@ def issues_locations_csv(tmp_path_factory, locations_with_issues_df) -> "Path":
     path = tmp_path_factory.mktemp("csv_issues") / "locations_issues.csv"
     locations_with_issues_df.to_csv(path, index=False)
     return path
+
+
+# ---------------------------------------------------------------------------
+# Scored DataFrame fixture  (for Phase 5 validation tests)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def clean_scored_df() -> pd.DataFrame:
+    """Ten fully-scored rows with a healthy, balanced tier distribution.
+
+    All values are within valid ranges.  No NaN.  Three tiers represented.
+    Used as the baseline "everything is fine" fixture for validation tests.
+
+    Tier breakdown:
+      HIGH      : 3 rows  (30%)
+      MODERATE  : 4 rows  (40%)
+      LOW       : 3 rows  (30%)
+    """
+    rows = [
+        # HIGH risk rows (canopy HIGH, steep slope, forest land cover)
+        {"location_id": "SC_H01", "latitude": 47.0, "longitude": -122.0,
+         "canopy_pct": 75.0,  "slope_deg": 25.0, "land_cover_code": 41,
+         "canopy_score": 1.0, "slope_score": 1.0, "landcover_score": 1.0,
+         "composite_score": 1.0, "risk_tier": "HIGH"},
+        {"location_id": "SC_H02", "latitude": 47.1, "longitude": -122.1,
+         "canopy_pct": 65.0,  "slope_deg": 22.0, "land_cover_code": 42,
+         "canopy_score": 1.0, "slope_score": 1.0, "landcover_score": 1.0,
+         "composite_score": 1.0, "risk_tier": "HIGH"},
+        {"location_id": "SC_H03", "latitude": 47.2, "longitude": -122.2,
+         "canopy_pct": 80.0,  "slope_deg": 21.0, "land_cover_code": 43,
+         "canopy_score": 1.0, "slope_score": 1.0, "landcover_score": 1.0,
+         "composite_score": 1.0, "risk_tier": "HIGH"},
+        # MODERATE risk rows
+        {"location_id": "SC_M01", "latitude": 45.0, "longitude": -120.0,
+         "canopy_pct": 35.0,  "slope_deg": 15.0, "land_cover_code": 21,
+         "canopy_score": 0.5, "slope_score": 0.5, "landcover_score": 0.5,
+         "composite_score": 0.5, "risk_tier": "MODERATE"},
+        {"location_id": "SC_M02", "latitude": 45.1, "longitude": -120.1,
+         "canopy_pct": 40.0,  "slope_deg": 12.0, "land_cover_code": 22,
+         "canopy_score": 0.5, "slope_score": 0.5, "landcover_score": 0.5,
+         "composite_score": 0.5, "risk_tier": "MODERATE"},
+        {"location_id": "SC_M03", "latitude": 45.2, "longitude": -120.2,
+         "canopy_pct": 30.0,  "slope_deg": 18.0, "land_cover_code": 23,
+         "canopy_score": 0.5, "slope_score": 0.5, "landcover_score": 0.5,
+         "composite_score": 0.5, "risk_tier": "MODERATE"},
+        {"location_id": "SC_M04", "latitude": 45.3, "longitude": -120.3,
+         "canopy_pct": 25.0,  "slope_deg": 11.0, "land_cover_code": 24,
+         "canopy_score": 0.5, "slope_score": 0.5, "landcover_score": 0.5,
+         "composite_score": 0.5, "risk_tier": "MODERATE"},
+        # LOW risk rows
+        {"location_id": "SC_L01", "latitude": 40.0, "longitude": -100.0,
+         "canopy_pct": 5.0,   "slope_deg": 2.0,  "land_cover_code": 82,
+         "canopy_score": 0.0, "slope_score": 0.0, "landcover_score": 0.0,
+         "composite_score": 0.0, "risk_tier": "LOW"},
+        {"location_id": "SC_L02", "latitude": 40.1, "longitude": -100.1,
+         "canopy_pct": 0.0,   "slope_deg": 0.0,  "land_cover_code": 71,
+         "canopy_score": 0.0, "slope_score": 0.0, "landcover_score": 0.0,
+         "composite_score": 0.0, "risk_tier": "LOW"},
+        {"location_id": "SC_L03", "latitude": 40.2, "longitude": -100.2,
+         "canopy_pct": 10.0,  "slope_deg": 5.0,  "land_cover_code": 31,
+         "canopy_score": 0.0, "slope_score": 0.0, "landcover_score": 0.0,
+         "composite_score": 0.0, "risk_tier": "LOW"},
+    ]
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------

@@ -26,27 +26,37 @@ from src.ingest import (
 
 
 def _make_df(**overrides) -> pd.DataFrame:
-    """Build a minimal valid single-row DataFrame, with optional column overrides."""
+    """Build a minimal valid single-row DataFrame, with optional column overrides.
+
+    Represents post-load data (after geoid_cb parsing has derived state).
+    validate_locations() only uses location_id, latitude, longitude, and state —
+    the remaining columns are carried through unchanged.
+    """
     base = {
         "location_id": "LOC_TEST_01",
         "latitude": 45.0,
         "longitude": -100.0,
+        "geoid_cb": "300490101001001",  # MT Meagher — valid FIPS
         "state": "MT",
-        "county": "TestCounty",
+        "county_fips": "30049",
     }
     base.update(overrides)
     return pd.DataFrame([base])
 
 
 def _make_valid_df(n: int = 5) -> pd.DataFrame:
-    """Build a DataFrame with *n* valid CONUS records."""
+    """Build a DataFrame with *n* valid CONUS records.
+
+    Represents post-load data with state derived from geoid_cb.
+    """
     rows = [
         {
             "location_id": f"LOC_{i:04d}",
             "latitude": 35.0 + i * 2,
             "longitude": -100.0 - i,
+            "geoid_cb": f"4800{i:01d}0101001001",  # TX, synthetic county
             "state": "TX",
-            "county": f"County_{i}",
+            "county_fips": f"4800{i:01d}",
         }
         for i in range(n)
     ]
@@ -65,8 +75,9 @@ class TestLoadLocations:
         assert len(df) == 10
 
     def test_returns_expected_columns(self, valid_locations_csv):
+        """After loading, state and county_fips must be derived from geoid_cb."""
         df = load_locations(valid_locations_csv)
-        for col in ["location_id", "latitude", "longitude", "state", "county"]:
+        for col in ["location_id", "latitude", "longitude", "geoid_cb", "state", "county_fips"]:
             assert col in df.columns, f"Expected column '{col}' not found"
 
     def test_raises_file_not_found(self, tmp_path):
@@ -220,22 +231,22 @@ class TestValidateLocationsDuplicates:
 
     def test_keeps_first_drops_duplicate(self):
         df = pd.DataFrame([
-            {"location_id": "DUP_01", "latitude": 40.0, "longitude": -100.0, "state": "CO", "county": "A"},
-            {"location_id": "DUP_01", "latitude": 41.0, "longitude": -101.0, "state": "CO", "county": "B"},
-            {"location_id": "UNIQUE", "latitude": 42.0, "longitude": -102.0, "state": "CO", "county": "C"},
+            {"location_id": "DUP_01", "latitude": 40.0, "longitude": -100.0, "state": "CO", "county_fips": "08013"},
+            {"location_id": "DUP_01", "latitude": 41.0, "longitude": -101.0, "state": "CO", "county_fips": "08014"},
+            {"location_id": "UNIQUE", "latitude": 42.0, "longitude": -102.0, "state": "CO", "county_fips": "08015"},
         ])
         clean, report = validate_locations(df)
         assert len(clean) == 2
         assert report["drop_reasons"]["duplicate_location_id"] == 1
-        # The first occurrence should be retained
+        # The first occurrence (county_fips "08013") should be retained
         dup_row = clean[clean["location_id"] == "DUP_01"].iloc[0]
-        assert dup_row["county"] == "A"
+        assert dup_row["county_fips"] == "08013"
 
     def test_multiple_duplicates(self):
         df = pd.DataFrame([
-            {"location_id": "DUP", "latitude": 40.0, "longitude": -100.0, "state": "CO", "county": "first"},
-            {"location_id": "DUP", "latitude": 40.1, "longitude": -100.1, "state": "CO", "county": "second"},
-            {"location_id": "DUP", "latitude": 40.2, "longitude": -100.2, "state": "CO", "county": "third"},
+            {"location_id": "DUP", "latitude": 40.0, "longitude": -100.0, "state": "CO", "county_fips": "08013"},
+            {"location_id": "DUP", "latitude": 40.1, "longitude": -100.1, "state": "CO", "county_fips": "08014"},
+            {"location_id": "DUP", "latitude": 40.2, "longitude": -100.2, "state": "CO", "county_fips": "08015"},
         ])
         clean, report = validate_locations(df)
         assert len(clean) == 1
@@ -348,17 +359,19 @@ class TestGenerateQualityReport:
     def test_issues_fixture_full_pipeline(self, issues_locations_csv):
         """End-to-end: load issues CSV → validate → report.
 
-        The issues fixture (see conftest.py) has 10 rows with 7 expected drops:
+        The issues fixture (see conftest.py) has 10 rows with 6 expected drops:
           1 null lat, 1 null lon, 1 null location_id,
           1 out-of-range lat, 1 out-of-range lon,
-          1 duplicate location_id, 1 invalid state code.
-        Exactly 3 rows should survive.
+          1 duplicate location_id.
+        The LOC_NULL_GEOID row (null geoid_cb) gets state filled by reverse
+        geocoding and is NOT dropped — it counts as valid.
+        Exactly 4 rows should survive.
         """
         df = load_locations(issues_locations_csv)
         clean, report = validate_locations(df)
         text = generate_quality_report(report)
 
         assert report["total_records"] == len(df)
-        assert report["dropped_records"] == 7
-        assert report["valid_records"] == 3
+        assert report["dropped_records"] == 6
+        assert report["valid_records"] == 4
         assert isinstance(text, str)
