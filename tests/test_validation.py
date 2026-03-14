@@ -48,9 +48,9 @@ def _make_scored_df(
         "canopy_pct": canopy_pct,
         "slope_deg": slope_deg,
         "land_cover_code": land_cover_code,
-        "canopy_score": 0.5,
-        "slope_score": 0.5,
-        "landcover_score": 0.5,
+        "canopy_risk": 0.5,
+        "slope_risk": 0.5,
+        "landcover_risk": 0.5,
         "composite_score": composite_score,
         "risk_tier": tier,
     }
@@ -76,9 +76,9 @@ def _make_mixed_scored_df(n: int = 9) -> pd.DataFrame:
             "canopy_pct": 35.0 if tier == RISK_TIER_MODERATE else (75.0 if tier == RISK_TIER_HIGH else 5.0),
             "slope_deg": 15.0 if tier == RISK_TIER_MODERATE else (25.0 if tier == RISK_TIER_HIGH else 2.0),
             "land_cover_code": 21,  # Developed — not forest (avoids cross-validation trigger)
-            "canopy_score": scores[tier],
-            "slope_score": scores[tier],
-            "landcover_score": 0.5,
+            "canopy_risk": scores[tier],
+            "slope_risk": scores[tier],
+            "landcover_risk": 0.5,
             "composite_score": scores[tier],
             "risk_tier": tier,
         })
@@ -331,14 +331,14 @@ class TestValidateResultsCrossValidation:
         """
         rows = [
             {"location_id": "F41", "canopy_pct": 2.0, "slope_deg": 5.0,
-             "land_cover_code": 41, "canopy_score": 0.0, "slope_score": 0.0,
-             "landcover_score": 1.0, "composite_score": 1.0, "risk_tier": RISK_TIER_HIGH},
+             "land_cover_code": 41, "canopy_risk": 0.0, "slope_risk": 0.0,
+             "landcover_risk": 1.0, "composite_score": 1.0, "risk_tier": RISK_TIER_HIGH},
             {"location_id": "F42", "canopy_pct": 1.0, "slope_deg": 5.0,
-             "land_cover_code": 42, "canopy_score": 0.0, "slope_score": 0.0,
-             "landcover_score": 1.0, "composite_score": 0.5, "risk_tier": RISK_TIER_MODERATE},
+             "land_cover_code": 42, "canopy_risk": 0.0, "slope_risk": 0.0,
+             "landcover_risk": 1.0, "composite_score": 0.5, "risk_tier": RISK_TIER_MODERATE},
             {"location_id": "F43", "canopy_pct": 0.0, "slope_deg": 5.0,
-             "land_cover_code": 43, "canopy_score": 0.0, "slope_score": 0.0,
-             "landcover_score": 1.0, "composite_score": 0.0, "risk_tier": RISK_TIER_LOW},
+             "land_cover_code": 43, "canopy_risk": 0.0, "slope_risk": 0.0,
+             "landcover_risk": 1.0, "composite_score": 0.0, "risk_tier": RISK_TIER_LOW},
         ]
         df = pd.DataFrame(rows)
         is_valid, report = validate_results(df)

@@ -2,6 +2,7 @@
 # Python 3.11+
 #
 # Install: pip install -r requirements.txt
+# For reproducible builds (e.g. CI/production), pin versions or use a lock file.
 
 # --- AI / Agent ---
 anthropic
@@ -21,15 +22,21 @@ us              # US state FIPS / name / abbreviation lookups
 matplotlib
 seaborn
 folium
+plotly              # Interactive charts in admin dashboard
 
 # --- Reporting / spreadsheet generation ---
 openpyxl
+
+# --- Web UI (Phase 7) ---
+flask
+markdown
 
 # --- Utilities ---
 python-dotenv
 tqdm
 requests
 reverse_geocoder
+geopy              # Address geocoding via Nominatim (OSM, free, no API key)
 
 # --- Testing ---
 pytest

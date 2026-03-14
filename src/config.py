@@ -46,7 +46,7 @@ ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
 # ---------------------------------------------------------------------------
 
 LOCATIONS_CSV = RAW_DIR / "DATA_CHALLENGE_50.csv"
-SAMPLE_LOCATIONS_CSV = RAW_DIR / "locations_sample.csv"  # dev/test fixture
+# No separate sample CSV — integration tests sample directly from LOCATIONS_CSV.
 
 # Columns the pipeline expects to find in the locations CSV.
 # Actual schema confirmed from DATA_CHALLENGE_50.csv (4.67M rows):
@@ -83,20 +83,24 @@ CONUS_LON_MAX = -66.885444
 
 # NLCD Tree Canopy Cover 2021 — CONUS
 CANOPY_RASTER_URL = (
-    "https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/metadata/"
-    "nlcd_tcc_conus_2021_v2021-4.zip"
+    "https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/data-bundles/"
+    "nlcd_tcc_CONUS_2021_v2021-4.zip"
 )
-CANOPY_RASTER_PATH = RAW_DIR / "nlcd_tcc_conus_2021.tif"
+# Verified working URL as of March 2026 (previous URL returned 404).
+# 3.7 GB ZIP. Download with: curl -L "<url>" -o data/raw/nlcd_tcc_conus_2021.zip
+CANOPY_RASTER_PATH = RAW_DIR / "nlcd_tcc_conus_2021_v2021-4.tif"
 
 # USGS 3DEP Digital Elevation Model — acquired per-tile via USGS National Map
 # Full CONUS DEM is assembled from tiles; path below is the merged output.
 DEM_RASTER_PATH = RAW_DIR / "dem_conus.tif"
 
 # NLCD Land Cover Classification 2021 — CONUS
-LANDCOVER_RASTER_URL = (
-    "https://www.mrlc.gov/downloads/sciweb1/shared/mrlc/metadata/"
-    "nlcd_land_cover_l48_2021_20230630.zip"
-)
+LANDCOVER_RASTER_URL: str | None = None
+# NLCD Land Cover 2021 CONUS-wide URL is not available as a stable direct link.
+# Download via MRLC Web Viewer: https://www.mrlc.gov/viewer/
+# See docs/data_download_guide.md → Step 2 for full instructions.
+# The MRLC viewer provides an NC-regional clip (~1-2 GB) which is sufficient.
+
 LANDCOVER_RASTER_PATH = RAW_DIR / "nlcd_landcover_conus_2021.tif"
 
 # Derived products (computed from raw rasters, stored locally)
@@ -170,6 +174,30 @@ CLAUDE_MODEL = "claude-opus-4-5"
 # Swap to claude-haiku-4-5 for faster/cheaper runs during dev.
 # Model names are centralised here so a one-line change updates the whole pipeline.
 
+# Anthropic API pricing (USD per million tokens) for estimated cost in monitoring.
+# Source: https://docs.anthropic.com/en/docs/about-claude/pricing (March 2026).
+# Update if model or pricing changes. Used only for monitoring_report.json estimate.
+ANTHROPIC_PRICE_INPUT_PER_1M_TOKENS: float = 5.0   # Claude Opus 4.5 / 4.6 base input
+ANTHROPIC_PRICE_OUTPUT_PER_1M_TOKENS: float = 25.0  # Claude Opus 4.5 / 4.6 output
+
+CLAUDE_TEMPERATURE: float = 0.0
+# Temperature = 0 for deterministic, reproducible pipeline behaviour.
+#
+# REASONING: This is a data pipeline, not a creative task. The agent must:
+#   (a) call tools in a fixed order (ingest → sample → score → validate → report)
+#   (b) route on-demand queries consistently (address → analyze_location)
+#   (c) return identical structured summaries for the same input data
+#
+# Temperature > 0 introduces randomness into tool selection and routing, which
+# would make behaviour non-reproducible across runs — unacceptable for a system
+# that feeds into programme management decisions.
+#
+# For on-demand queries, temperature=0 also ensures that the plain-English
+# recommendations returned by analyze_location are consistent: two technicians
+# querying the same location get the same advice.
+#
+# Documented in: _personal/DECISION_LOG.md, docs/architecture.md
+
 MAX_AGENT_TURNS = 20
 # Safety ceiling: stop the agent loop after this many turns regardless.
 # At 20 turns the full 5-tool pipeline has ample headroom with retries.
@@ -211,5 +239,7 @@ FINDINGS_REPORT_PATH = OUTPUT_DIR / "findings_report.md"
 RISK_DISTRIBUTION_CHART_PATH = OUTPUT_DIR / "risk_distribution.png"
 STATIC_MAP_PATH = OUTPUT_DIR / "risk_map_static.png"
 INTERACTIVE_MAP_PATH = OUTPUT_DIR / "risk_map_interactive.html"
+VALIDATED_LOCATIONS_PATH = PROCESSED_DIR / "locations_validated.csv"
+ENRICHED_LOCATIONS_PATH = PROCESSED_DIR / "locations_enriched.csv"
 SCORED_LOCATIONS_PATH = PROCESSED_DIR / "locations_scored.csv"
 MONITORING_REPORT_PATH = OUTPUT_DIR / "agent_monitoring_report.json"

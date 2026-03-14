@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin — Dashboard | LEO Satellite Risk</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <style>
+    .admin-page { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+    .admin-page h1 { margin-bottom: 0.5rem; }
+    .admin-page .back { margin-bottom: 1.5rem; }
+    .admin-section { margin-bottom: 2rem; }
+    .admin-section h2 { font-size: 1.1rem; margin-bottom: 0.75rem; color: var(--text-muted, #8b949e); }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+    .stat-card { background: var(--panel-bg, #161b22); padding: 0.75rem; border-radius: 6px; }
+    .stat-card .value { font-size: 1.25rem; font-weight: 600; }
+    .stat-card .label { font-size: 0.8rem; color: var(--text-muted, #8b949e); }
+    .admin-page table { width: 100%; border-collapse: collapse; }
+    .admin-page th, .admin-page td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border, #30363d); }
+    .admin-page th { font-size: 0.85rem; color: var(--text-muted); }
+    .charts-dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem; }
+    @media (max-width: 900px) { .charts-dashboard { grid-template-columns: 1fr; } }
+    .chart-wrap { background: var(--panel-bg, #161b22); border-radius: 8px; padding: 0.75rem; border: 1px solid var(--border, #30363d); }
+    .chart-wrap .plotly { width: 100%; min-height: 300px; }
+    .chart-full { grid-column: 1 / -1; }
+  </style>
+</head>
+<body>
+  <div class="admin-page">
+    <nav class="back"><a href="/">← Map</a> · <a href="/report">Full Report</a></nav>
+    <h1>Admin — Dashboard</h1>
+    <p class="subtitle">Summary stats and interactive charts for the data team. Requires <code>locations_scored.csv</code>.</p>
+
+    <section class="admin-section">
+      <h2>Summary</h2>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="value">{{ total }}</div>
+          <div class="label">Total locations</div>
+        </div>
+        {% for tier, d in (distribution or {}).items() %}
+        <div class="stat-card">
+          <div class="value">{{ d.count }}</div>
+          <div class="label">{{ tier }} ({{ d.pct }}%)</div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="admin-section">
+      <h2>API usage & cost (latest agent run)</h2>
+      <p class="subtitle" style="margin-bottom: 0.75rem;">Pricing source: <a href="https://docs.anthropic.com/en/docs/about-claude/pricing" target="_blank" rel="noopener">Anthropic Claude API pricing</a>. Formula and details in <code>docs/monitoring_and_pricing.md</code>.</p>
+      {% if monitoring_data %}
+      <div class="stat-grid" style="margin-bottom: 1rem;">
+        <div class="stat-card">
+          <div class="value">{{ monitoring_data.get('model', '—') }}</div>
+          <div class="label">Model</div>
+        </div>
+        <div class="stat-card">
+          <div class="value">{{ monitoring_data.get('input_tokens', 0) | int }}</div>
+          <div class="label">Input tokens</div>
+        </div>
+        <div class="stat-card">
+          <div class="value">{{ monitoring_data.get('output_tokens', 0) | int }}</div>
+          <div class="label">Output tokens</div>
+        </div>
+        <div class="stat-card">
+          <div class="value">${{ "%.4f"|format(monitoring_data.get('estimated_cost_usd', 0)) }}</div>
+          <div class="label">Estimated cost (USD)</div>
+        </div>
+        <div class="stat-card">
+          <div class="value">{{ monitoring_data.get('mode', '—') }}</div>
+          <div class="label">Mode</div>
+        </div>
+        <div class="stat-card">
+          <div class="value">{{ 'Yes' if monitoring_data.get('tools_restricted') else 'No' }}</div>
+          <div class="label">Tools restricted (on-demand only)</div>
+        </div>
+      </div>
+      {% if chart_cost_html %}
+      <div class="chart-wrap" style="max-width: 400px;">{{ chart_cost_html | safe }}</div>
+      {% endif %}
+      {% else %}
+      <p><em>No monitoring report yet. Run the pipeline or use interactive/chat once: <code>python -m src.main</code> or send a chat message.</em></p>
+      {% endif %}
+    </section>
+
+    <section class="admin-section">
+      <h2>Charts (interactive — zoom, pan, hover)</h2>
+      {% if chart_bar_html or chart_pie_html or chart_map_html %}
+      <div class="charts-dashboard">
+        {% if chart_bar_html %}
+        <div class="chart-wrap">{{ chart_bar_html | safe }}</div>
+        {% endif %}
+        {% if chart_pie_html %}
+        <div class="chart-wrap">{{ chart_pie_html | safe }}</div>
+        {% endif %}
+        {% if chart_map_html %}
+        <div class="chart-wrap chart-full">{{ chart_map_html | safe }}</div>
+        {% endif %}
+      </div>
+      {% else %}
+      <p><em>No chart data. Run the pipeline first: <code>python -m src.main</code></em></p>
+      {% endif %}
+    </section>
+
+    <section class="admin-section">
+      <h2>Top 15 counties by HIGH risk count</h2>
+      {% if top_counties %}
+      <table>
+        <thead><tr><th>State</th><th>County</th><th>HIGH count</th></tr></thead>
+        <tbody>
+          {% for row in top_counties %}
+          <tr><td>{{ row.state }}</td><td>{{ row.county }}</td><td>{{ row.count }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p><em>No data. Run the pipeline first.</em></p>
+      {% endif %}
+    </section>
+  </div>
+</body>
+</html>

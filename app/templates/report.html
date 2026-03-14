@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Findings Report — LEO Satellite Risk</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body class="report-page">
+  <header class="header">
+    <h1>LEO Satellite Connectivity Risk — Findings</h1>
+    <nav><a href="/">← Back to Map</a></nav>
+  </header>
+  <main class="report-content">
+    <article class="report-body">
+      {{ content | safe }}
+    </article>
+  </main>
+</body>
+</html>

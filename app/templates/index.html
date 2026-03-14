@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LEO Satellite Risk — NC</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <div class="layout">
+    <header class="header">
+      <h1>LEO Satellite Connectivity Risk</h1>
+      <p class="subtitle">North Carolina — 4.67M locations</p>
+      <nav>
+        <a href="/">Map</a>
+        <a href="/report">Full Report</a>
+        <a href="/admin">Admin</a>
+      </nav>
+    </header>
+
+    <aside class="sidebar" id="sidebar">
+      <section class="filters-panel">
+        <h2>Location</h2>
+        <label>Country</label>
+        <select id="select-country">
+          <option value="">Loading…</option>
+        </select>
+        <label>State</label>
+        <select id="select-state"><option value="NC">North Carolina</option></select>
+        <label>County</label>
+        <select id="select-county">
+          <option value="">All counties</option>
+        </select>
+      </section>
+
+      <section class="stats-panel">
+        <h2>Statewide</h2>
+        <div id="stats-loading">Loading…</div>
+        <div id="stats-content" class="hidden">
+          <div class="stat-row"><span class="tier high">HIGH</span>   <span id="stat-high">—</span></div>
+          <div class="stat-row"><span class="tier moderate">MODERATE</span> <span id="stat-moderate">—</span></div>
+          <div class="stat-row"><span class="tier low">LOW</span>    <span id="stat-low">—</span></div>
+          <div class="stat-total">Total: <span id="stat-total">—</span></div>
+        </div>
+      </section>
+
+      <section class="toggles-panel">
+        <h2>Map overlay</h2>
+        <label class="toggle-row toggle-overlay"><input type="checkbox" id="toggle-risk-overlay" checked /> <span>Show risk overlay</span></label>
+        <p class="toggle-hint">Off = hide county color fill only; outlines, point clusters, and Statewide stats stay visible.</p>
+        <h3 class="toggle-sub">Risk layers</h3>
+        <label class="toggle-row"><input type="checkbox" id="toggle-high" checked /> <span class="tier high">High risk</span></label>
+        <label class="toggle-row"><input type="checkbox" id="toggle-moderate" checked /> <span class="tier moderate">Moderate risk</span></label>
+        <label class="toggle-row"><input type="checkbox" id="toggle-low" checked /> <span class="tier low">Low risk</span></label>
+      </section>
+
+      <section class="search-panel">
+        <h2>Location search</h2>
+        <input type="text" id="search-input" placeholder="Address or 35.22, -80.84" />
+        <div class="search-buttons">
+          <button type="button" id="btn-search">Analyze</button>
+          <button type="button" id="btn-gps">Use GPS</button>
+        </div>
+        <div id="search-status" class="status"></div>
+        <div id="analyze-result" class="result-panel hidden"></div>
+      </section>
+
+      <section class="location-detail-panel hidden" id="location-detail-panel">
+        <h2 id="location-detail-title">Location detail</h2>
+        <p id="location-detail-coords" class="coords"></p>
+        <div class="open-external-buttons">
+          <a id="btn-open-google-maps" href="#" target="_blank" rel="noopener" class="btn-external disabled" title="Opens at this location; switch to Satellite in Maps for clear view">Open in Google Maps</a>
+          <a id="btn-open-google-earth" href="#" target="_blank" rel="noopener" class="btn-external disabled" title="Satellite / 3D view">Open in Google Earth</a>
+        </div>
+        <div id="location-detail-status" class="status"></div>
+        <div id="location-detail-result" class="result-panel"></div>
+        <button type="button" id="btn-download-report" class="btn-download">Download report</button>
+      </section>
+
+      <section class="county-panel hidden" id="county-panel">
+        <h2 id="county-title">County</h2>
+        <div id="county-status" class="status"></div>
+        <div id="county-result" class="result-panel"></div>
+      </section>
+    </aside>
+
+    <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
+
+    <main class="main">
+      <div id="map"></div>
+      <div class="map-legend">
+        <span class="leg high">High risk</span>
+        <span class="leg moderate">Moderate</span>
+        <span class="leg low">Low risk</span>
+      </div>
+    </main>
+  </div>
+
+  <!-- Floating chat: bubble + window (bottom-right) -->
+  <div class="chat-window" id="chat-window" aria-hidden="true">
+    <div class="chat-window-header">
+      <span>Chat</span>
+      <button type="button" class="chat-window-close" id="chat-close" aria-label="Close">×</button>
+    </div>
+    <div class="chat-window-messages" id="chat-messages"></div>
+    <div class="chat-window-footer">
+      <input type="text" id="chat-input" placeholder="Ask e.g. risk at 35.78, -78.64 or briefing for Wake County…" />
+      <button type="button" id="chat-send">Send</button>
+    </div>
+  </div>
+  <button type="button" class="chat-bubble" id="chat-bubble" aria-label="Open chat">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  </button>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+</body>
+</html>

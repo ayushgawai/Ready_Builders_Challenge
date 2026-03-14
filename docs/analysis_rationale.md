@@ -154,6 +154,21 @@ The 0.60 threshold behaves logically: a single HIGH factor with zero corroborati
 
 ---
 
+## Seasonal Variation and Deciduous Forest Locations
+
+The batch pipeline assigns a single risk score per location, using peak-summer NLCD canopy values. This is a known limitation; see README "Known Limitations" and [docs/guide.md](guide.md).
+
+**Partial mitigation via the agent's `analyze_location` tool:**  
+When a technician queries a specific location, the agent checks the NLCD land cover code and adds a seasonal advisory for deciduous and mixed forest locations:
+
+- **Deciduous Forest (code 41):** Leaf drop November–March reduces effective canopy obstruction by an estimated 30–60%. A location scored HIGH in summer may be functionally MODERATE for a winter installation. The agent flags this and recommends scheduling winter installs and re-running the Starlink in-app obstruction check after leaf drop.
+- **Mixed Forest (code 43):** Partial seasonal benefit (deciduous component sheds, evergreen component remains). Agent flags moderate winter improvement.
+- **Evergreen Forest (code 42):** No seasonal benefit. Agent notes this explicitly so the technician does not assume winter improvement.
+
+This does **not** change the stored composite score — the score remains the summer peak value. The seasonal note is advisory guidance returned as part of the `analyze_location` response. The rationale: overriding the stored score with a seasonally-adjusted value would create two different scores for the same location depending on when it was queried, which would be confusing in reports and dashboards.
+
+---
+
 ## What Would Change These Thresholds
 
 These thresholds are **modeled priors derived from physical requirements**. They would be updated under either of two conditions:
