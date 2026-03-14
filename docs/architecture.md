@@ -23,6 +23,52 @@ The Claude API (via Anthropic's tool_use protocol) acts as the **reasoning layer
 
 ---
 
+## Primary deliverable — requirements coverage
+
+This section maps the **data ingestion and analysis workflow** requirements to where they are implemented and documented.
+
+| Requirement | Where it is addressed |
+|-------------|------------------------|
+| **Architecture diagram (agents, tools, communication, human intervention)** | Mermaid diagrams below (flowchart + sequence). Human intervention points: see [Human intervention](#human-intervention-points). |
+| **Clear agent boundaries** | Single LLM agent (Claude) used for **reasoning only**. Two tool sets: **batch** (5 tools, ingest→report) and **on-demand** (4 tools). Scope and tool access: [Agent Orchestrator](#agent-orchestrator-src-agentpy) and [Orchestration and entry points](#orchestration-entry-points-and-when-the-pipeline-runs). |
+| **Clear tool definition (schema and definitions)** | All tools defined in **`src/tools.py`** with Anthropic tool schema (name, description, input_schema). See [Component Descriptions](#component-descriptions) below for each tool; full JSON Schema in code. |
+| **State management** | [Data Flow and State Management](#data-flow-and-state-management): file-based between batch tools; at scale and for web/mobile: [State at scale and web/mobile](#state-at-scale-and-webmobile). |
+| **Failure handling** | [Failure Handling](#failure-handling): bad data, missing rasters, validation anomalies; agent receives error JSON and decides retry or report. |
+
+### Human intervention points
+
+- **Trigger batch run** — A human (or cron) runs `python -m src.main`. The pipeline does not run in the background by default.
+- **Review after anomalies** — If `validate_results` returns `is_valid=False` or high drop rate, the agent reports it; the human can inspect `data/output/anomaly_report.txt` and `data_quality_report.txt`, fix input data or config, and re-run.
+- **Web UI** — User runs address search, chat, or county briefing; each action is an on-demand agent call. Human intervenes by using the app.
+- **Pipeline-only mode** — If API credits are unavailable, run `python -m src.main --mode pipeline-only` to execute the same five steps without the LLM (no orchestration decisions; fixed order in code).
+
+---
+
+## Orchestration, entry points, and when the pipeline runs
+
+We do **not** use Airflow or a separate job scheduler. **Orchestration is agentic**: the Claude agent decides which tool to call next. When you start a batch run, the agent runs in a loop: call tool → get result → decide next step → repeat until the pipeline is complete.
+
+The requirement asks for a system that **orchestrates the workflow — ingestion, analysis, validation, and reporting**. It also states: *"You may build the workflow completely with Agentic AI. Then document your prompts and process to solve the problem."* We do exactly that: **the LLM agent is the orchestrator**. It decides which tool to call next (ingest → sample → score → validate → report), handles tool results and failures, and drives the workflow to completion. There is no separate orchestration engine (e.g. Airflow or Prefect) in the current design; the agentic loop fulfils the orchestration requirement.
+
+### What "orchestration" means here
+
+- **Batch pipeline:** One invocation of `python -m src.main` (default mode) starts the agent with a prompt like “Run the full pipeline on this CSV.” The agent then calls `ingest_locations` → `sample_environment` → `score_risk` → `validate_results` → `generate_report` in order, passing **file paths** (not the 4.67M rows) between steps. So the **LLM orchestrates** the workflow; there is no separate orchestration engine.
+- **Scheduling:** The pipeline is **on-demand per run**. It runs when you execute the CLI (or when a cron job or Airflow task runs that same CLI). There is no built-in schedule; for production you could add a cron job (e.g. daily) or an Airflow DAG that runs `python -m src.main`.
+- **Background process:** The batch pipeline is **not** a long-running daemon. One run = one process that exits when the pipeline finishes. The **web app** (`python -m app.run`) is a long-running server that serves the UI and calls the agent for each user request (analyze, chat); it does not run the full batch pipeline in the background.
+
+### Entry points
+
+| Entry point | Command | What runs | When |
+|-------------|---------|-----------|------|
+| **Batch (full pipeline)** | `python -m src.main` | Agent + all 5 batch tools; reads CSV, writes validated → enriched → scored CSV and reports. | Once per invocation. Run manually or via cron/Airflow. |
+| **Interactive (one-off query)** | `python -m src.main --mode interactive --query "..."` | Agent + 4 on-demand tools only; uses existing scored CSV. | Once per invocation. |
+| **Pipeline without agent** | `python -m src.main --mode pipeline-only` | Same 5 steps in fixed order in Python; no Claude API. | Once per invocation. Use when no API key or for debugging. |
+| **Web app** | `python -m app.run` | Flask server on port 5001; serves map, search, chat, report, admin. Each analyze/chat request calls the agent with on-demand tools. | Server runs until you stop it. Does not run the batch pipeline; relies on an existing scored CSV from a prior batch run. |
+
+So: **entry point for the workflow** is the CLI. The batch pipeline is **not** “always running in the background”; it runs once per CLI (or scheduled) invocation. The web app is a separate entry point for **consuming** the results and asking on-demand questions.
+
+---
+
 ## High-Level System Diagram
 
 The diagram below shows the system architecture: input data (locations CSV and Starlink requirements), the agent orchestrator (Claude), the five batch tools in order, the three rasters (canopy, DEM, land cover), and the outputs. **Main data output:** `locations_scored.csv` (CSV, open in Excel). The pipeline also writes a narrative findings report (Markdown, rendered as HTML in the app and available for download).
@@ -118,6 +164,8 @@ sequenceDiagram
 ---
 
 ## Component Descriptions
+
+**Tool definitions:** Every tool used by the agent is defined in **`src/tools.py`** with an Anthropic-compatible schema: `name`, `description` (for the model), and `input_schema` (JSON Schema). The agent receives only these schemas and the system prompt; it never sees the Python implementation. Below is a prose summary of each component; for the exact schema (parameters, types, required fields), see `src/tools.py`.
 
 ### Agent Orchestrator (`src/agent.py`)
 
@@ -217,6 +265,11 @@ Serves **aggregation questions** in the UI chat (e.g. "which county has the high
 
 ## Data Flow and State Management
 
+### How context and results pass between the agent and tools
+
+- **Batch pipeline:** The agent does **not** hold the 4.67M records in memory or in API messages. Each tool **reads from and writes to files** at paths defined in `config.py`. The agent receives only **summaries** (e.g. valid count, dropped count, output path, tier distribution). So state between steps is **on disk**: validated CSV → enriched CSV → scored CSV. If the process is interrupted, the next run can skip steps whose output file already exists and is newer than its input (see Idempotency below).
+- **On-demand (interactive / UI):** The agent loads the scored CSV once per session into `self._scored_df` and reuses it for `analyze_location`, `assess_area`, `assess_polygon`, and `query_top_counties`. So the only “in-memory” state is one DataFrame of scored results on the server; the agent still does not receive 4.67M rows in any API message.
+
 ```
 Raw CSV → [T1: ingest] → cleaned_locations.csv (data/processed/)
        → [T2: enrich] → enriched_locations.csv (data/processed/)
@@ -229,6 +282,13 @@ Each tool call persists its output to disk. If the pipeline is interrupted and r
 
 **Idempotency / cache check** (`src/utils/pipeline_utils.py`):  
 At startup the agent calls `is_scored_cache_valid(input_path, output_path)`. If `locations_scored.csv` already exists and is newer than the input CSV, the agent skips the entire ingest→enrich→score pipeline and calls `load_scored_cache()` instead. This avoids re-running the 20–60 minute raster sampling step on unchanged data. To force a full re-run, delete `data/processed/locations_scored.csv`.
+
+### State at scale and web/mobile
+
+We cannot assume all records fit in memory when the dataset grows (e.g. 100M+ locations) or when many users hit the web app at once.
+
+- **Batch pipeline at scale:** Today we use a single CSV per stage. At scale, state would be **partitioned** (e.g. by state or tile): each partition has its own validated/enriched/scored files or table. The agent (or an orchestrator like Airflow) would track “which partitions are done” via manifests or a warehouse, not one monolithic file. See [Scale Architecture — Path to Production](#scale-architecture--path-to-production) for Snowflake + dbt + partition-based state.
+- **Web app / phone:** The **server** holds the scored dataset (one in-memory DataFrame today, or a connection to a database at scale). The **phone or browser** is a thin client: it sends requests (e.g. “analyze this address”) and receives responses. No 4.67M rows are sent to the device. Session state on the client can be minimal (e.g. last query or map view). So “state management” for the app is **server-side**: either the server caches the scored CSV in memory (current design) or reads from a warehouse/DB; the client does not hold large state.
 
 ---
 

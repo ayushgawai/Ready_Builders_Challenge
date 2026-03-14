@@ -12,10 +12,12 @@ An agent-driven pipeline that scores ~4.67M North Carolina broadband locations (
 
 ## How to Run
 
+The pipeline is **on-demand**: batch runs once per CLI invocation (no built-in scheduler). Orchestration is agentic (Claude decides which tool to call next). See [architecture.md](architecture.md) for entry points, when the pipeline runs, and state management.
+
 1. **Prereqs:** Python 3.11+, `data/raw/DATA_CHALLENGE_50.csv`, three rasters (see Data setup below). `cp .env.example .env` and set `ANTHROPIC_API_KEY`.
 2. **Batch:** `python -m src.main` → writes `data/processed/locations_scored.csv`, `data/output/findings_report.md`, charts, `agent_monitoring_report.json`.
 3. **Interactive CLI:** `python -m src.main --mode interactive --query "Risk at 35.78, -78.64?"`
-4. **UI:** `python -m app.run` → http://127.0.0.1:5001 (map, Analyze, Chat, Admin at /admin).
+4. **UI:** `python -m app.run` → http://127.0.0.1:5001 (map, Analyze, Chat, Admin at /admin). Requires a prior batch run (scored CSV). Server runs until stopped; it does not run the batch in the background.
 5. **Tests:** `pytest tests/ -v`
 
 ---
