@@ -1,8 +1,15 @@
 # System Architecture
 
 **Project:** LEO Satellite Coverage Risk Analysis  
-**Version:** 1.2  
-**Last updated:** March 2026 (pipeline complete — Phase 6 verified, Phase 7 UI complete)
+**Last updated:** March 2026
+
+**Overview (non-technical):**
+
+![How it works](architecture_overview.png)
+
+**Technical (low-level design):**
+
+![System architecture](architecture_diagram.png)
 
 ---
 
@@ -18,39 +25,41 @@ The Claude API (via Anthropic's tool_use protocol) acts as the **reasoning layer
 
 ## High-Level System Diagram
 
+The diagram below shows the system architecture: input data (locations CSV and Starlink requirements), the agent orchestrator (Claude), the five batch tools in order, the three rasters (canopy, DEM, land cover), and the outputs. **Main data output:** `locations_scored.csv` (CSV, open in Excel). The pipeline also writes a narrative findings report (Markdown, rendered as HTML in the app and available for download).
+
 ```mermaid
 flowchart TB
-    subgraph Input["📥 Input Layer"]
-        CSV["Locations CSV\n4,674,905 records\n(location_id, lat, lon, geoid_cb)"]
-        GUIDE["Starlink Install Guide\nRequirements Reference\n(translated to thresholds in config.py)"]
+    subgraph Input["Input Layer"]
+        CSV["Locations CSV<br/>4.67M records"]
+        GUIDE["Starlink requirements<br/>thresholds in config.py"]
     end
 
-    subgraph Agent["🤖 Agent Orchestrator (Claude API)"]
-        ORCH["Orchestrator Agent\n─────────────────────\n• Reasons about workflow state\n• Calls tools sequentially\n• Handles tool failures\n• Explains results in natural language\n• Decides whether to retry or abort"]
+    subgraph Agent["Agent Orchestrator (Claude API)"]
+        ORCH["Reasons about workflow<br/>Calls tools in order<br/>Handles failures"]
     end
 
-    subgraph Tools["🔧 Tool Layer  (defined in src/tools.py)"]
-        T1["ingest_locations\n─────────────────\nLoad CSV → validate schema\nclean data → log quality metrics"]
-        T2["sample_environment\n─────────────────\nSample canopy % at lat/lon\nSample elevation → compute slope\nExtract land cover class"]
-        T3["score_risk\n─────────────────\nApply risk methodology\nAssign HIGH / MOD / LOW\nCompute composite score"]
-        T4["validate_results\n─────────────────\nCheck for anomalies\nFlag impossible values\nDistribution sanity check"]
-        T5["generate_report\n─────────────────\nSummary statistics\nVisualizations\nKey findings narrative"]
+    subgraph Tools["Tool Layer"]
+        T1["ingest_locations: load, validate, clean"]
+        T2["sample_environment: canopy, elevation, slope, land cover"]
+        T3["score_risk: risk formula, HIGH/MOD/LOW"]
+        T4["validate_results: anomalies, sanity check"]
+        T5["generate_report: stats, charts, findings"]
     end
 
-    subgraph Data["💾 Data Layer  (local rasters, .gitignored)"]
-        NLCD_TCC["NLCD Tree Canopy Cover 2021\n30m GeoTIFF — CONUS\nSource: USGS / MRLC"]
-        DEM["USGS 3DEP DEM\n10m GeoTIFF — CONUS\nSource: USGS National Map"]
-        NLCD_LC["NLCD Land Cover 2021\n30m GeoTIFF — CONUS\nSource: USGS / MRLC"]
+    subgraph Data["Data Layer"]
+        NLCD_TCC["NLCD Tree Canopy 2021, 30m"]
+        DEM["USGS 3DEP DEM, 10m"]
+        NLCD_LC["NLCD Land Cover 2021, 30m"]
     end
 
-    subgraph Output["📊 Output Layer"]
-        SCORED["locations_scored.csv\n(with risk tier + component scores)"]
-        REPORT["findings_report.md\n(key stats + narrative)"]
-        VIZ["risk_distribution.png\nrisk_map_static.png\nrisk_map_interactive.html"]
+    subgraph Output["Output Layer"]
+        SCORED["locations_scored.csv"]
+        REPORT["findings_report.md"]
+        VIZ["Charts: PNG, HTML"]
     end
 
     CSV --> ORCH
-    GUIDE -.->|"thresholds\ncodified in\nconfig.py"| ORCH
+    GUIDE -.-> ORCH
     ORCH --> T1
     T1 --> T2
     NLCD_TCC --> T2
@@ -58,22 +67,24 @@ flowchart TB
     NLCD_LC --> T2
     T2 --> T3
     T3 --> T4
-    T4 -->|"✅ Pass"| T5
-    T4 -->|"⚠️ Anomaly detected"| ORCH
+    T4 -->|Pass| T5
+    T4 -->|Anomaly| ORCH
     T5 --> SCORED
     T5 --> REPORT
     T5 --> VIZ
 
-    style Input fill:#e3f2fd,stroke:#1565C0
-    style Agent fill:#f0f4ff,stroke:#2E75B6
-    style Tools fill:#fff8e1,stroke:#BF8F00
-    style Data fill:#e8f5e9,stroke:#548235
-    style Output fill:#fce4ec,stroke:#C62828
+    style Input fill:#e8f4fc,stroke:#1565c0,color:#222
+    style Agent fill:#e3f2fd,stroke:#1976d2,color:#222
+    style Tools fill:#fff8e1,stroke:#f9a825,color:#222
+    style Data fill:#e8f5e9,stroke:#388e3c,color:#222
+    style Output fill:#fce4ec,stroke:#c62828,color:#222
 ```
 
 ---
 
-## Agent Interaction Sequence
+## Agent Interaction Sequence (Batch Flow)
+
+The sequence diagram below shows how the batch pipeline runs: the user asks the agent to run the pipeline; the agent calls each tool in turn (ingest → sample_environment → score_risk → validate_results → generate_report), using file paths on disk between steps. Tool results (e.g. valid/dropped counts, enriched columns, tier distribution) are returned to the agent, which then decides the next step until the final report is generated.
 
 ```mermaid
 sequenceDiagram
@@ -85,23 +96,23 @@ sequenceDiagram
     participant T4 as validate_results
     participant T5 as generate_report
 
-    U->>A: Run pipeline for locations.csv
-    A->>A: Reason: Need to load and validate data first
-    A->>T1: Call { file_path: "data/raw/locations.csv" }
-    T1-->>A: { valid: 950K, dropped: 50K, quality_log }
-    A->>A: Reason: 5% dropped — review quality log, proceed if acceptable
-    A->>T2: Call { locations: <validated data ref> }
-    T2-->>A: { enriched locations: canopy_pct, elevation_m, slope_deg, land_cover_code }
-    A->>A: Reason: Environmental data attached. Check NaN rate before scoring.
-    A->>T3: Call { enriched_data: <ref> }
-    T3-->>A: { scored locations: composite_score, risk_tier }
-    A->>A: Reason: Scoring done. Must validate before trusting results.
-    A->>T4: Call { scored_data: <ref> }
-    T4-->>A: { is_valid: true, anomalies: 120, validation_summary }
-    A->>A: Reason: Valid. 120 anomalies flagged but within acceptable range.
-    A->>T5: Call { validated_data: <ref> }
-    T5-->>A: { summary_stats, chart_paths, findings_text }
-    A-->>U: Pipeline complete. 23% of locations are HIGH risk. Key findings: ...
+    U->>A: Run pipeline
+    A->>A: Load and validate first
+    A->>T1: Load and validate CSV
+    T1-->>A: valid: 4.67M, dropped, quality_log
+    A->>A: Proceed if acceptable
+    A->>T2: Validated locations
+    T2-->>A: enriched: canopy, slope, land_cover
+    A->>A: Check NaN before scoring
+    A->>T3: Enriched data
+    T3-->>A: composite_score, risk_tier
+    A->>A: Validate before report
+    A->>T4: Scored data
+    T4-->>A: is_valid, anomalies, summary
+    A->>A: Proceed to report
+    A->>T5: Scored data
+    T5-->>A: stats, charts, findings
+    A-->>U: Pipeline complete. Key findings: ...
 ```
 
 ---
@@ -113,14 +124,14 @@ sequenceDiagram
 - **What it does:** `PipelineAgent` wraps the Anthropic `messages.create` API in an agentic loop. Sends tool results back to Claude after each invocation; Claude decides what to call next.
 - **Scope:** Reasoning, ordering, failure handling. Does NOT do computation — all logic lives in the underlying Python modules.
 - **Temperature:** Set to **0** (`CLAUDE_TEMPERATURE = 0.0` in `config.py`). This is a data pipeline, not a creative task. Temperature=0 ensures identical tool routing and output text for the same input data — critical for reproducibility when pipeline results feed into programme management decisions. See README Decision Log and config.py comments for rationale.
-- **State management:** Batch pipeline tools communicate via **file paths** on disk. On-demand tools (`analyze_location`, `assess_area`) load the scored CSV once and cache the DataFrame in memory (`self._scored_df`) to avoid re-reading 4.67M rows on every interactive query.
+- **State management:** Batch pipeline tools communicate via **file paths** on disk. On-demand tools (`analyze_location`, `assess_area`, `assess_polygon`, `query_top_counties`) load the scored CSV once and cache the DataFrame in memory (`self._scored_df`) to avoid re-reading 4.67M rows on every interactive query.
 - **Failure handling:** `handle_tool_call` wraps every Python call in `try/except` and returns structured error JSON if something goes wrong. Claude receives the error, reasons about the root cause, and decides whether to retry or report the issue.
 - **Monitoring:** Every tool call records wall-clock execution time, success/failure, and result size. Total token usage (input + output) is tracked from API responses. Written to `data/output/agent_monitoring_report.json` at the end of each run.
 - **Three run modes:**
   - `run_pipeline(csv_path)` — batch: processes the full locations CSV end-to-end. Uses **all** tools (PIPELINE_TOOLS + ON_DEMAND_TOOLS).
   - `run_interactive(query)` — on-demand: used by the UI chat and CLI `--mode interactive`. Uses **ON_DEMAND_TOOLS only** (`tools_override=ON_DEMAND_TOOLS`); batch pipeline tools are not exposed, so the agent cannot call `ingest_locations`, `sample_environment`, `score_risk`, `validate_results`, or `generate_report`. This keeps chat fast and ensures only cached scored data is used (no re-downloads or raster sampling).
   - `--mode pipeline-only` (via `main.py`) — runs the 5-step batch sequence without any API calls, useful when credits are unavailable.
-- **Tool routing:** In interactive mode Claude can only call `analyze_location`, `assess_area`, and `query_top_counties`. For "which county has the most low/high risk locations?" it uses `query_top_counties(state, tier)` which reads the scored CSV only.
+- **Tool routing:** In interactive mode Claude can only call `analyze_location`, `assess_area`, `assess_polygon`, and `query_top_counties`. For "which county has the most low/high risk locations?" it uses `query_top_counties(state, tier)`; for custom areas (bbox or polygon) it uses `assess_polygon`. All read the scored CSV only.
 
 ### Tool: `analyze_location` — on-demand single-point assessment
 
@@ -257,9 +268,9 @@ At startup the agent calls `is_scored_cache_valid(input_path, output_path)`. If 
 
 ## Production Considerations
 
-This pipeline is a proof-of-concept optimized for a 4-day build sprint. For production deployment:
+This pipeline is optimized for a single-machine deployment. For production at scale:
 
-| Concern | POC Approach | Production Approach |
+| Concern | Current deployment | Production |
 |---|---|---|
 | Orchestration | Python `while` loop | Apache Airflow DAG |
 | Raster storage | Local GeoTIFF files | Cloud-Optimized GeoTIFFs (COGs) on S3 |
@@ -273,7 +284,7 @@ This pipeline is a proof-of-concept optimized for a 4-day build sprint. For prod
 
 ## Scale Architecture — Path to Production
 
-The POC runs on a single laptop. Below is the full production-grade architecture for scaling to national coverage, real-time queries, and multi-team usage.
+The current deployment runs on a single machine. Below is a production-grade architecture for scaling to national coverage, real-time queries, and multi-team usage.
 
 ### Data Platform (Snowflake + dbt)
 
@@ -361,7 +372,7 @@ Airflow DAG: leo_risk_pipeline
 
 ### Scaling Numbers
 
-| Dimension | POC | Production |
+| Dimension | Current | Production |
 |---|---|---|
 | Locations | 4.67M (NC) | 140M+ (US national broadband map) |
 | Raster sampling time | ~60 min (serial) | ~8 min (93 Dask partitions × 2 cores) |

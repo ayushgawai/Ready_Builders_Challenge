@@ -4,7 +4,7 @@ Entry point for the LEO Satellite Coverage Risk Analysis pipeline.
 Two run modes
 -------------
 batch (default)
-    Run the full pipeline end-to-end on the challenge CSV using the Claude agent.
+    Run the full pipeline end-to-end on the locations CSV using the Claude agent.
     The agent loads, enriches, scores, validates, and reports on all ~4.67M locations.
 
     Example::

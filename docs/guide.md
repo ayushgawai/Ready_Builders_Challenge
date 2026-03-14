@@ -1,6 +1,6 @@
 # Run & Setup Guide
 
-**Challenge:** [Ready.net Builders Challenge #50](https://github.com/ready/builders-challenge/issues/50) — LEO Satellite Coverage Risk Analysis.
+LEO Satellite Coverage Risk Analysis: setup, run steps, and document index.
 
 ---
 
@@ -30,7 +30,7 @@ Three rasters are required. Scripts are idempotent (skip if file exists).
 | `nlcd_landcover_conus_2021.tif` | NLCD Land Cover 2021 | `python scripts/download_nc_landcover.py` |
 | `dem_conus.tif` | USGS 3DEP DEM | `python scripts/download_nc_dem.py` |
 
-Paths are in `src/config.py`. Full download details and troubleshooting are in the README "Add your data" and "Download rasters" sections.
+Paths are in `src/config.py`. The `data/` directory is gitignored: all inputs, processed files, and outputs stay local and are not committed. The UI reads from `data/processed/` and `data/output/` at runtime. Full download details and troubleshooting are in the README "Add your data" and "Download rasters" sections.
 
 ---
 
@@ -46,7 +46,7 @@ Paths are in `src/config.py`. Full download details and troubleshooting are in t
 ## Monitoring & Pricing
 
 - **Source:** [Anthropic Claude API pricing](https://docs.anthropic.com/en/docs/about-claude/pricing). Input $5/1M tokens, output $25/1M tokens (config in `src/config.py`).
-- **Output:** `data/output/agent_monitoring_report.json` — `input_tokens`, `output_tokens`, `estimated_cost_usd`, `mode`, `tools_restricted`. Admin dashboard shows latest run.
+- **Output:** `data/output/agent_monitoring_report.json` with `input_tokens`, `output_tokens`, `estimated_cost_usd`, `mode`, `tools_restricted`. Admin dashboard shows latest run.
 
 ---
 
@@ -67,11 +67,9 @@ All 9 tools (5 batch + 4 on-demand) are defined in `src/tools.py` with JSON sche
 
 ---
 
-## Submission Checklist
+## Run checklist
 
-- [x] README with decision log
-- [x] AI_TOOLS.md
-- [x] docs/ (architecture, analysis rationale, this guide)
-- [x] src/ (pipeline + agent)
-- [x] Batch and interactive modes; UI with map, chat, admin
-- [x] Monitoring report with token usage and estimated cost
+- README: setup, decision log, findings
+- docs/architecture.md, docs/analysis_rationale.md, this guide
+- Batch: `python -m src.main`; interactive: `--mode interactive --query "..."`; UI: `python -m app.run`
+- Monitoring: token usage and estimated cost in `data/output/agent_monitoring_report.json`
