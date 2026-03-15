@@ -12,8 +12,8 @@ This document lists AI tools used in this project and **cases where I diverged f
 | **Claude Opus (via Cursor)** | Anthropic / Cursor | Architecture and build planning, methodology from Starlink install guide |
 | **Cursor IDE** | Cursor AI | Code generation, scaffolding, refactors |
 | **Nominatim (geopy)** | OpenStreetMap | Free US address → coordinates for `analyze_location` |
-| **pygris** | Census (Python) | County NAMELSAD from FIPS (TIGER boundaries) |
-| **us** | Python | State FIPS ↔ abbreviation / name |
+| **pygris** | PyPI (Python) | County NAMELSAD from FIPS via Census TIGER boundaries |
+| **us** | PyPI (Python) | State FIPS ↔ abbreviation / name; e.g. `us.states.lookup(fips).abbr` → "CA" |
 
 ---
 
@@ -23,7 +23,7 @@ This document lists AI tools used in this project and **cases where I diverged f
 
 **Nominatim:** Used for address → (lat, lon) in `analyze_location`. Free, no key, 1 req/s; sufficient for single-location queries. We argued over alternatives (Google, ArcGIS, HERE) and landed on Nominatim for cost and simplicity.
 
-**pygris + us:** GEOID (`geoid_cb`) → state abbreviation and county **name** (NAMELSAD). I insisted on storing and showing the actual county name everywhere (reports, UI, tool outputs), not just FIPS/ID — see divergences below.
+**pygris + us:** GEOID (`geoid_cb`) → state abbreviation and county **name** (NAMELSAD). **us** is the name of the Python package ([PyPI: us](https://pypi.org/project/us/)), not "United States" — it provides state metadata (FIPS code, abbreviation, full name) for all 50 states + DC. We use `us.states.lookup(fips).abbr` to get the 2-letter state code from the first two digits of `geoid_cb`. **pygris** is another Python package that fetches Census TIGER/Line boundaries and returns county names (NAMELSAD) from county FIPS. I insisted on storing and showing the actual county name everywhere (reports, UI, tool outputs), not just FIPS/ID — see divergences below.
 
 ---
 
