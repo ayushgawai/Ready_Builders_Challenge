@@ -9,6 +9,56 @@ Every number in `src/config.py` — `CANOPY_HIGH_THRESHOLD = 50`, `SLOPE_HIGH_TH
 
 ---
 
+## Step 0: Install Guide Analysis
+
+The following four questions are answered from the **Starlink installation guide** (starlink.com/installation-guides) and define the scope of what we can and cannot model. These answers drive the choice of datasets, thresholds, and limitations below.
+
+### 1. What physical conditions cause interruptions?
+
+**Answer:** Any physical object that blocks the line of sight between the dish and the sky causes **intermittent outages** as satellites pass through the blocked arc. The guide explicitly calls out:
+
+- **Trees and foliage** — branches, leaves, and canopy. The guide states that *"even a single branch"* can cause outages. Tree canopy is the primary and most commonly cited obstruction.
+- **Terrain** — hills, ridges, and slopes that rise above the horizon from the dish’s perspective, reducing the usable sky arc.
+- **Structures** — buildings, sheds, and other fixed obstructions. These are not mapped in national raster datasets at building-height resolution.
+
+A **fixed** obstruction (tree, structure, or terrain) causes **recurring** outages on every orbital pass through that arc, not a one-time event.
+
+### 2. What does the dish need?
+
+**Answer:** From the Starlink installation guide:
+
+- **Unobstructed field of view (FOV):** 100–110° cone of clear sky.
+- **Minimum elevation:** Clear sky above **25° elevation angle** above the horizon in **all directions** (all azimuths). The dish scans from ~25° elevation to zenith.
+- **Permanence:** The view must be clear of obstructions that would block that arc; temporary obstructions (e.g. a passing truck) are less critical than fixed ones (trees, buildings, terrain).
+
+So the dish needs a clear sky dome from 25° elevation to zenith, in every direction — anything that narrows or blocks that arc creates risk.
+
+### 3. What datasets model these risks?
+
+**Answer:** We use three national, publicly available datasets to model obstruction risk at each location:
+
+| Risk factor | Dataset | What it provides | Why we use it |
+|-------------|---------|------------------|---------------|
+| **Tree canopy** | NLCD Tree Canopy Cover 2021 (USGS/MRLC) | Percent of each 30m pixel covered by tree canopy (0–100%) | Directly models the “tree branch / foliage” obstruction cited in the install guide. |
+| **Terrain** | USGS 3DEP DEM → slope (degrees) | Elevation at ~30m resolution; we derive slope to approximate horizon angle | Steep terrain narrows the visible sky arc and can push the horizon above the 25° minimum. |
+| **Land cover** | NLCD Land Cover 2021 (USGS/MRLC) | Land cover class per 30m pixel (e.g. forest, developed, open) | Cross-validates canopy; adds context (forest vs developed); partially covers building-obstruction risk where we have no building-height data. |
+
+All three are CONUS-wide, same vintage (2021), 30m or comparable resolution. They are the standard sources used in federal broadband and environmental planning.
+
+### 4. What can’t be modeled remotely?
+
+**Answer:** The following cannot be reliably modeled with our current remote datasets:
+
+- **Building heights and exact structures** — No national raster provides building height or 3D structure. In developed areas (NLCD 21–24), we assign MODERATE risk to acknowledge unmapped building obstruction, but we cannot quantify it.
+- **Sub-30m detail** — A single tree in an otherwise open field, or the exact position of a branch, is below the 30m pixel scale. We model statistical likelihood (canopy %) rather than exact geometry.
+- **Seasonal canopy change** — NLCD captures peak-summer canopy. Deciduous leaf drop (November–March) reduces effective obstruction; we add an **advisory note** in `analyze_location` for deciduous/mixed forest but do not change the stored score.
+- **Temporal changes** — New construction, tree growth, or logging after the 2021 vintage are not reflected.
+- **Installation choices** — Mounting height, pole extension, or dish placement that mitigate terrain or partial obstruction are site-specific and not modeled.
+
+So: **building obstruction in developed areas**, **fine-scale vegetation and geometry**, and **temporal/seasonal effects** are explicit limitations of remote modeling. The pipeline is best used to **prioritize site assessment** (e.g. HIGH locations) rather than to replace it.
+
+---
+
 ## Primary Evidence Source: Starlink Installation Guide
 
 All three factors and their thresholds trace back to a single authoritative source: the **Starlink installation guide** (publicly available at starlink.com/installation-guides). Key physical requirements from that document:

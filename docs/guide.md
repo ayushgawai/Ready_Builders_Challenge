@@ -64,6 +64,7 @@ All 9 tools (5 batch + 4 on-demand) are defined in `src/tools.py` with JSON sche
 |------|----------|
 | Setup, run, decision log, findings | [README.md](../README.md) |
 | Architecture, tools, Mermaid diagram | [architecture.md](architecture.md) |
+| **Step 0 install guide analysis** (4 required Q&As: physical conditions, dish needs, datasets, what can't be modeled) | [analysis_rationale.md](analysis_rationale.md) — section "Step 0: Install Guide Analysis" |
 | Methodology, thresholds, limitations | [analysis_rationale.md](analysis_rationale.md) |
 | AI tools and divergence cases | [AI_TOOLS.md](../AI_TOOLS.md) |
 
