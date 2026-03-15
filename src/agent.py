@@ -1416,13 +1416,38 @@ class PipelineAgent:
         logger.debug("Tool metric: %s | %d ms | success=%s", tool_name, elapsed_ms, success)
 
     def _save_monitoring_report(self) -> None:
-        """Persist the monitoring dict to MONITORING_REPORT_PATH as JSON."""
+        """Persist the monitoring dict to MONITORING_REPORT_PATH as JSON.
+
+        In interactive mode, merges with existing report so token usage and cost
+        accumulate across UI requests. In batch mode, overwrites (one run = one report).
+        """
         import json as _json
 
         report = dict(self._monitoring)
-        # Estimated cost (USD) from token counts and config pricing per 1M tokens
         in_tok = report.get("input_tokens") or 0
         out_tok = report.get("output_tokens") or 0
+
+        if report.get("mode") == "interactive" and config.MONITORING_REPORT_PATH.exists():
+            try:
+                existing = _json.loads(
+                    config.MONITORING_REPORT_PATH.read_text(encoding="utf-8")
+                )
+                in_tok = (existing.get("input_tokens") or 0) + in_tok
+                out_tok = (existing.get("output_tokens") or 0) + out_tok
+                report["input_tokens"] = in_tok
+                report["output_tokens"] = out_tok
+                report["turns"] = (existing.get("turns") or 0) + (report.get("turns") or 0)
+                existing_tools = existing.get("tools") or {}
+                for name, stats in (report.get("tools") or {}).items():
+                    if name not in existing_tools:
+                        existing_tools[name] = {"calls": 0, "failures": 0, "total_ms": 0}
+                    existing_tools[name]["calls"] += stats.get("calls", 0)
+                    existing_tools[name]["failures"] += stats.get("failures", 0)
+                    existing_tools[name]["total_ms"] += stats.get("total_ms", 0)
+                report["tools"] = existing_tools
+            except (OSError, ValueError) as exc:
+                logger.warning("Could not merge existing monitoring report: %s", exc)
+
         report["estimated_cost_usd"] = round(
             (in_tok / 1_000_000 * config.ANTHROPIC_PRICE_INPUT_PER_1M_TOKENS)
             + (out_tok / 1_000_000 * config.ANTHROPIC_PRICE_OUTPUT_PER_1M_TOKENS),
